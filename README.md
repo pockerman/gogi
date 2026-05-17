@@ -20,20 +20,45 @@ gogi evolves around a number of services.
 
 ## How to install locally
 
-The best and easiest way to use the platform is via Docker
+The best and easiest way to use the platform is via Docker:
+
+```
+docker compose up --build
+```
+
 Alternatively, you should install the requirements and start the gRPC server:
 
 ```
+go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
 
+Generate the gRPC structures:
+
+
+```
+server/genai/v1/
+
+protoc -I=proto \
+  --go_out=. \
+  --go-grpc_out=. \
+  --experimental_allow_proto3_optional \ 
+  proto/gogi/v1/*.proto
+```
+
+Finally, start the gRPC server
+
+```
 go run gogi/main.go 
 ```
 
 Unless you do some sort of development on the platform itself, you will need one of the supported SDKs.
 This is what your application uses to interact with the platform:
 
-- Python
-- Java
-- TypeScript
+- <a href="https://github.com/pockerman/gogi-python">Python</a>
+- <a href="#">Java</a>
+- <a href="#">TypeScript</a>
 
 ## SDKs
 
