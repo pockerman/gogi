@@ -1,0 +1,63 @@
+syntax = "proto3";
+ 
+package genai.v1;
+ 
+service SessionService {
+    rpc GetOrCreateSession(GetOrCreateSessionRequest) 
+        returns (GetOrCreateSessionResponse);
+    rpc ListSessions(ListSessionsRequest)
+        returns (ListSessionsResponse);
+    rpc AddMessages(AddMessagesRequest) 
+        returns (AddMessagesResponse);
+    rpc GetMessages(GetMessagesRequest) 
+        returns (GetMessagesResponse);
+    rpc DeleteSession(DeleteSessionRequest) 
+        returns (DeleteSessionResponse);
+}
+
+message GetOrCreateSessionRequest {
+  string user_id = 1;
+  optional string session_id = 2;
+}
+ 
+message Session {                                 
+  string session_id = 1;
+  string user_id = 2;
+  int64 created_at = 3;
+  int64 updated_at = 4;
+}
+ 
+message GetOrCreateSessionResponse {
+  Session session = 1;                          
+}
+ 
+message ListSessionsRequest {
+  string user_id = 1;
+}
+ 
+message ListSessionsResponse {
+  repeated Session sessions = 1;    
+}
+ 
+message AddMessagesRequest {
+    string session_id = 1;
+    repeated Message messages = 2;
+}
+ 
+message AddMessagesResponse {
+    bool success = 1;
+    int32 message_count = 2;
+}
+
+message GetMessagesRequest {
+    string session_id = 1;
+    optional int32 limit = 2;
+    optional int32 offset = 3;
+    optional string strategy = 4;
+}
+ 
+message GetMessagesResponse {
+    repeated Message messages = 1;
+    int32 total_count = 2;
+}
+ 

@@ -1,0 +1,40 @@
+message Span {
+  string trace_id = 1;
+  string span_id = 2;
+  string parent_span_id = 3;
+  string service = 4;
+  string operation = 5;
+  google.protobuf.Timestamp start_time = 6;
+  google.protobuf.Timestamp end_time = 7;
+  SpanStatus status = 8;
+  map<string, string> attributes = 9;
+  map<string, double> numeric_attributes = 10;
+  repeated SpanEvent events = 11;
+}
+ 
+message Generation {
+  Span span = 1;
+  string model = 2;
+  string provider = 3;
+  string requested_model = 4;
+  int32 prompt_tokens = 5;
+  int32 completion_tokens = 6;
+  double cost_usd = 7;
+  bool cache_hit = 8;
+  bool fallback_used = 9;
+  double time_to_first_token_ms = 10;
+}
+ 
+message Trace {
+  string trace_id = 1;
+  string session_id = 2;
+  repeated Span spans = 3;
+  repeated Generation generations = 4;
+  string input = 5;
+  string output = 6;
+  double total_duration_ms = 7;
+  double total_cost_usd = 8;
+  int32 total_tokens = 9;
+  repeated Score scores = 10;
+  repeated string tags = 11;
+}

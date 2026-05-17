@@ -1,0 +1,25 @@
+syntax = "proto3";
+ 
+package genai.v1;
+
+
+message Message {
+    string role = 1;
+    optional string content = 2;
+    repeated ToolCall tool_calls = 3;
+    optional string tool_call_id = 4;
+    optional string name = 5;
+    int64 timestamp = 6;
+}
+ 
+message ToolCall {
+    string id = 1;
+    string type = 2;
+    Function function = 3;
+}
+ 
+message Function {
+    string name = 1;
+    string arguments = 2;
+}
+ 

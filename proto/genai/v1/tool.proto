@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package genai.v1;
+
+option go_package = "gogenai/genai/v1;genaiv1";
+
+message ToolDefinition {
+  string name = 1;
+  string description = 2;
+  string parameters_json_schema = 3;
+}
