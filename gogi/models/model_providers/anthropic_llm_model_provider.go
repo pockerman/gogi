@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gogenai/model_service"
+	"gogi/models"
 	"net/http"
 )
 
@@ -24,8 +24,8 @@ func (provider *AnthropicLLMModelProvider) SetApiKey(apiKey string) {
 	provider.apiKey = apiKey
 }
 
-func (provider *AnthropicLLMModelProvider) Run(messages []model_service.LLMMessage,
-	config model_service.LLMModelConfig) model_service.LLModelResponse {
+func (provider *AnthropicLLMModelProvider) Run(messages []models.LLMMessage,
+	config models.LLMModelConfig) models.LLModelResponse {
 
 	body, _ := provider.preparePayload(messages, config)
 
@@ -47,7 +47,7 @@ func (provider *AnthropicLLMModelProvider) Run(messages []model_service.LLMMessa
 
 	fmt.Println(result)
 
-	return model_service.LLModelResponse{
+	return models.LLModelResponse{
 		Provider: "ANTHROPIC",
 		Response: result,
 	}
@@ -62,8 +62,8 @@ func (provider *AnthropicLLMModelProvider) prepareHeaders(request *http.Request)
 
 }
 
-func (provider *AnthropicLLMModelProvider) preparePayload(messages []model_service.LLMMessage,
-	config model_service.LLMModelConfig) ([]byte, error) {
+func (provider *AnthropicLLMModelProvider) preparePayload(messages []models.LLMMessage,
+	config models.LLMModelConfig) ([]byte, error) {
 
 	payload := map[string]interface{}{
 		"model":       config.ModelName,

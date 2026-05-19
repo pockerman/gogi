@@ -26,7 +26,10 @@ The best and easiest way to use the platform is via Docker:
 docker compose up --build
 ```
 
-Alternatively, you should install the requirements and start the gRPC server:
+Alternatively, download the required proto files from <a href="https://github.com/pockerman/gogi-protos">gogi-protos</a>. Currently the platform works with ```v1```.
+Store these under the ```protos``` directory
+
+you should install the requirements and start the gRPC server:
 
 ```
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
