@@ -1,4 +1,4 @@
-package documents
+package impl
 
 type DocumentSection struct {
 	Content    string

@@ -1,7 +1,11 @@
-package gateway
+package main
 
 import (
+	"gogi/gogi/services/gateway/impl"
 	"gogi/gogi/utils"
+	"os"
+	"os/signal"
+	"syscall"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -11,7 +15,7 @@ import (
 // External HTTP traffic → Routes HTTP requests from external clients to workflow containers based on API paths
 // Internal gRPC traffic → Routes gRPC calls from workflows to platform services (sessions, models, etc.) based on x-target-service metadata
 
-func RegisterPlatformServices(registry *ServiceRegistry) {
+func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
 	registry.RegisterService("documents", "localhost:50051")
@@ -31,7 +35,7 @@ func main() {
 	// - For gRPC calls, inspect the x-target-service header to route to the correct platform service
 
 	// create a new service registry to track available services and workflows
-	registry := ServiceRegistry{}
+	registry := *impl.NewServiceRegistry()
 
 	// Register core platform services with the registry
 	RegisterPlatformServices(&registry)
@@ -41,6 +45,13 @@ func main() {
 	// start the gRPC server in a separate goroutine to handle internal traffic from workflows
 
 	log.Infof("API Gateway started and running")
-	select {}
+
+	// Instead of: select {}
+
+	// Use something like this to wait for an interrupt signal
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+	log.Println("Shutting down server...")
 
 }

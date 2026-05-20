@@ -1,4 +1,4 @@
-package documents
+package impl
 
 type DocumentService interface {
 	ListDocuments(indexName string) ([]DocumentMetadata, error)

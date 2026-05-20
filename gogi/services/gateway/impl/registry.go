@@ -1,4 +1,4 @@
-package gateway
+package impl
 
 import "fmt"
 
@@ -10,6 +10,13 @@ import "fmt"
 type ServiceRegistry struct {
 	services  map[string]string // Map of service names to their addresses
 	workflows map[string]string // Map of workflow names to their addresses
+}
+
+func NewServiceRegistry() *ServiceRegistry {
+	return &ServiceRegistry{
+		services:  make(map[string]string),
+		workflows: make(map[string]string),
+	}
 }
 
 func (r *ServiceRegistry) RegisterService(name string, address string) {

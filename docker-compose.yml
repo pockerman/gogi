@@ -34,13 +34,21 @@ services:
       - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50056
       - GOGI_LLM_SERVICE_ADDR=llms:50057
     depends_on:
-      - data
-  data:
+      - documents
+  documents:
     build:  
       context: .
-      dockerfile: docker/data.Dockerfile
+      dockerfile: docker/documents.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL: gateway:50051
-      - GENAI_GATEWAY_INSECURE: "1"   # in-cluster gRPC is plaintext
+      - GENAI_GATEWAY_URL=gateway:50051
+      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+  # data:
+  #   build:  
+  #     context: .
+  #     dockerfile: docker/data.Dockerfile
+  #   environment:
+  #     - GOGI_LOG_LEVEL=debug
+  #     - GENAI_GATEWAY_URL=gateway:50051
+  #     - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
 
