@@ -1,0 +1,1 @@
+# Data Service container — pgvector-backed when VECTOR_STORE=pgvector.
