@@ -1,7 +1,7 @@
 package main
 
 import (
-	"gogi/gogi/data/documents"
+	"gogi/gogi/services/data/documents"
 	"gogi/gogi/utils"
 	"net"
 
