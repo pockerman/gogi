@@ -13,8 +13,9 @@ import (
 
 func main() {
 
-	const PORT string = ":50051"
+	const PORT string = ":50054"
 	const PROTOCOL string = "tcp"
+	const SERVICE_NAME string = "documents"
 
 	// initialize the logger for the platform
 	utils.InitLogger()
@@ -25,10 +26,9 @@ func main() {
 	}
 
 	documentServer := grpc.NewServer()
-
 	gogiv1.RegisterDocumentServerServer(documentServer, &impl.DocumentsServer{})
 
-	log.Infof("gRPC server running on: %s", PORT)
+	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
 	if err := documentServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

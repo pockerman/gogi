@@ -18,10 +18,10 @@ import (
 func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
-	registry.RegisterService("documents", "localhost:50051")
-	registry.RegisterService("indexes", "localhost:50052")
-	registry.RegisterService("ingestion", "localhost:50053")
-	registry.RegisterService("search", "localhost:50054")
+	registry.RegisterService("documents", "localhost:50054")
+	//registry.RegisterService("indexes", "localhost:50052")
+	//registry.RegisterService("ingestion", "localhost:50053")
+	//registry.RegisterService("search", "localhost:50054")
 }
 
 func main() {
@@ -35,10 +35,10 @@ func main() {
 	// - For gRPC calls, inspect the x-target-service header to route to the correct platform service
 
 	// create a new service registry to track available services and workflows
-	registry := *impl.NewServiceRegistry()
+	registry := impl.NewServiceRegistry()
 
 	// Register core platform services with the registry
-	RegisterPlatformServices(&registry)
+	RegisterPlatformServices(registry)
 
 	// figure out the ports for the HTTP server and gRPC server from the environment or config
 	// start the HTTP server in a separate goroutine to handle external traffic
