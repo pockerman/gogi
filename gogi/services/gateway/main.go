@@ -3,9 +3,7 @@ package main
 import (
 	"gogi/gogi/services/gateway/impl"
 	"gogi/gogi/utils"
-	"os"
-	"os/signal"
-	"syscall"
+	"net"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -18,13 +16,16 @@ import (
 func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
-	registry.RegisterService("documents", "localhost:50054")
+	registry.RegisterService("documents", "documents:50054")
 	//registry.RegisterService("indexes", "localhost:50052")
 	//registry.RegisterService("ingestion", "localhost:50053")
 	//registry.RegisterService("search", "localhost:50054")
 }
 
 func main() {
+
+	const PORT string = ":50051"
+	const PROTOCOL string = "tcp"
 
 	// initialize the logger for the API Gateway
 	utils.InitLogger()
@@ -40,6 +41,13 @@ func main() {
 	// Register core platform services with the registry
 	RegisterPlatformServices(registry)
 
+	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry))
+
+	lis, err := net.Listen(PROTOCOL, PORT)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
 	// figure out the ports for the HTTP server and gRPC server from the environment or config
 	// start the HTTP server in a separate goroutine to handle external traffic
 	// start the gRPC server in a separate goroutine to handle internal traffic from workflows
@@ -49,9 +57,9 @@ func main() {
 	// Instead of: select {}
 
 	// Use something like this to wait for an interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	if err := grpcServer.Server().Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 	log.Println("Shutting down server...")
 
 }

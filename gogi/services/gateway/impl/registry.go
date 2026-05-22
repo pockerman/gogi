@@ -45,3 +45,11 @@ func (r *ServiceRegistry) GetWorkflowAddress(name string) (string, error) {
 	}
 	return "", fmt.Errorf("workflow not found: %s", name)
 }
+
+func (r *ServiceRegistry) ResolveService(name string) (string, error) {
+
+	if address, ok := r.services[name]; ok {
+		return address, nil
+	}
+	return "", fmt.Errorf("service not found: %s", name)
+}
