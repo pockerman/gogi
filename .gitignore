@@ -32,4 +32,4 @@ go.work.sum
 # .vscode/
 
 # Gogi specific
-./gogi/gogi/
+gogi/gogi/
