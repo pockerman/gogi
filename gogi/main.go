@@ -1,23 +1,15 @@
 package main
 
 import (
-	"fmt"
-	"gogenai/gogenai/utils"
+	"gogi/gogi/services/data/documents"
+	"gogi/gogi/utils"
 	"net"
 
-	genaiv1 "gogenai/genai/v1"
+	gogiv1 "gogi/gogi/gogi/v1"
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
-
-type ChatServer struct {
-	//genaiv1.UnimplementedChatServiceServer
-}
-
-func (s *ChatServer) Chat() (string, error) {
-	fmt.Sprintf("This is the message")
-}
 
 func main() {
 
@@ -32,11 +24,18 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	server := grpc.NewServer()
-	genaiv1.RegisterChatServiceServer(server, &ChatServer{})
+	documentServer := grpc.NewServer()
+	// indexServer := grpc.NewServer()
+	// ingestionServer := grpc.NewServer()
+	// searchServer := grpc.NewServer()
+
+	gogiv1.RegisterDocumentServerServer(documentServer, &documents.DocumentsServer{})
+	// genaiv1.RegisterChatServiceServer(indexServer, &indexes.IndexServer{})
+	// genaiv1.RegisterChatServiceServer(ingestionServer, &ingestion.IngestionServer{})
+	// genaiv1.RegisterChatServiceServer(searchServer, &search.SearchServer{})
 
 	log.Infof("gRPC server running on: %s", PORT)
-	if err := server.Serve(lis); err != nil {
+	if err := documentServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

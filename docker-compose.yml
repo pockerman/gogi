@@ -1,0 +1,54 @@
+# gogi[AI] Docker Compose Configuration
+# `docker compose up` brings up the seven platform services + a
+# pgvector-enabled Postgres on a shared network. The gateway is the only
+# service whose ports are mapped to the host (8080 for external HTTP,
+# 50051 for the SDK's gRPC channel); everything else is reachable only
+# from inside the compose network, by container name (e.g.,
+# `sessions:50052`).
+#
+# Each container runs the same image artifact a platform team would push
+# to a registry and reference from a Kubernetes Deployment — see
+# `docker/*.Dockerfile`. The compose file maps env vars to the same
+# config knobs the production deployment would use.
+#
+# Once this is up, `genai-platform deploy <file>` (run from the host)
+# packages a workflow into its own container and the Workflow Service
+# launches it onto the same compose network, so the gateway can route
+# traffic to it.
+
+name: gogi-platform
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_SESSION_SERVICE_ADDR=sessions:50052
+      - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
+      - GOGI_DOCUMENT_SERVICE_ADDR=documents:50054
+      - GOGI_EMBEDDING_SERVICE_ADDR=embeddings:50055
+      - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50056
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
+    depends_on:
+      - documents
+  documents:
+    build:  
+      context: .
+      dockerfile: docker/documents.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GENAI_GATEWAY_URL=gateway:50051
+      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+  # data:
+  #   build:  
+  #     context: .
+  #     dockerfile: docker/data.Dockerfile
+  #   environment:
+  #     - GOGI_LOG_LEVEL=debug
+  #     - GENAI_GATEWAY_URL=gateway:50051
+  #     - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+
