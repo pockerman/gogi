@@ -20,7 +20,16 @@ gogi evolves around a number of services.
 
 ## How to install locally
 
-The best and easiest way to use the platform is via Docker:
+Pull the proto files
+
+```
+git submodule update --remote --recursive
+```
+
+Build the protofiles by using the ```build_protobuf.sh``` script. 
+
+
+The best and easiest way to use the platform is via Docker.
 
 ```
 docker compose up --build
