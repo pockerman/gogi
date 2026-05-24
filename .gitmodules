@@ -1,3 +1,0 @@
-[submodule "vendor/protos/gogi"]
-	path = vendor/protos/gogi
-	url = https://github.com/pockerman/gogi-protos
