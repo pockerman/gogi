@@ -17,7 +17,7 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
 	registry.RegisterService("documents", "documents:50054")
-	//registry.RegisterService("indexes", "localhost:50052")
+	registry.RegisterService("indexes", "localhost:50055")
 	//registry.RegisterService("ingestion", "localhost:50053")
 	//registry.RegisterService("search", "localhost:50054")
 }
