@@ -6,15 +6,15 @@ import (
 )
 
 type IndexesProxy struct {
-	gogiv1.UnimplementedIndexServerServer
+	gogiv1.UnimplementedIndexServiceServer
 	proxy *GenericGRPCProxy
 }
 
-func (p *IndexesProxy) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRequest) (*gogiv1.CreateIndexResponse, error) {
+func (p *IndexesProxy) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRequest) (*gogiv1.IndexResponse, error) {
 	return p.proxy.ForwardCreateIndex(ctx, req)
 }
 
-func (p *IndexesProxy) GetIndex(ctx context.Context, req *gogiv1.GetIndexRequest) (*gogiv1.GetIndexResponse, error) {
+func (p *IndexesProxy) GetIndex(ctx context.Context, req *gogiv1.GetIndexRequest) (*gogiv1.IndexResponse, error) {
 	return p.proxy.ForwardGetIndex(ctx, req)
 }
 

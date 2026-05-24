@@ -52,7 +52,7 @@ func (p *GenericGRPCProxy) ForwardListDocuments(
 func (p *GenericGRPCProxy) ForwardGetDocument(
 	ctx context.Context,
 	req *gogiv1.GetDocumentRequest,
-) (*gogiv1.DocumentResponse, error) {
+) (*gogiv1.GetDocumentResponse, error) {
 
 	target, err := p.registry.ResolveService("documents")
 	if err != nil {
@@ -100,10 +100,10 @@ func (p *GenericGRPCProxy) ForwardDeleteDocument(
 }
 
 // Indexes
-func (p *GenericGRPCProxy) ForwardCreateIndexes(
+func (p *GenericGRPCProxy) ForwardCreateIndex(
 	ctx context.Context,
-	req *gogiv1.CreateIndexesRequest,
-) (*gogiv1.CreateIndexesResponse, error) {
+	req *gogiv1.CreateIndexRequest,
+) (*gogiv1.IndexResponse, error) {
 
 	target, err := p.registry.ResolveService("indexes")
 	if err != nil {
@@ -121,14 +121,14 @@ func (p *GenericGRPCProxy) ForwardCreateIndexes(
 
 	defer conn.Close()
 
-	client := gogiv1.NewIndexServerClient(conn)
-	return client.CreateIndexes(ctx, req)
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.CreateIndex(ctx, req)
 }
 
 func (p *GenericGRPCProxy) ForwardGetIndex(
 	ctx context.Context,
 	req *gogiv1.GetIndexRequest,
-) (*gogiv1.GetIndexResponse, error) {
+) (*gogiv1.IndexResponse, error) {
 
 	target, err := p.registry.ResolveService("indexes")
 	if err != nil {
@@ -146,7 +146,7 @@ func (p *GenericGRPCProxy) ForwardGetIndex(
 
 	defer conn.Close()
 
-	client := gogiv1.NewIndexServerClient(conn)
+	client := gogiv1.NewIndexServiceClient(conn)
 	return client.GetIndex(ctx, req)
 }
 
@@ -171,7 +171,7 @@ func (p *GenericGRPCProxy) ForwardListIndexes(
 
 	defer conn.Close()
 
-	client := gogiv1.NewIndexServerClient(conn)
+	client := gogiv1.NewIndexServiceClient(conn)
 	return client.ListIndexes(ctx, req)
 }
 
@@ -196,7 +196,7 @@ func (p *GenericGRPCProxy) ForwardDeleteIndex(
 
 	defer conn.Close()
 
-	client := gogiv1.NewIndexServerClient(conn)
+	client := gogiv1.NewIndexServiceClient(conn)
 	return client.DeleteIndex(ctx, req)
 }
 

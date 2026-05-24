@@ -18,7 +18,7 @@ func (p *DocumentsProxy) ListDocuments(
 	return p.proxy.ForwardListDocuments(ctx, req)
 }
 
-func (p *DocumentsProxy) GetDocument(ctx context.Context, req *gogiv1.GetDocumentRequest) (*gogiv1.DocumentResponse, error) {
+func (p *DocumentsProxy) GetDocument(ctx context.Context, req *gogiv1.GetDocumentRequest) (*gogiv1.GetDocumentResponse, error) {
 	return p.proxy.ForwardGetDocument(ctx, req)
 }
 

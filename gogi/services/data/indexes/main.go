@@ -26,7 +26,7 @@ func main() {
 	}
 
 	indexServer := grpc.NewServer()
-	gogiv1.RegisterIndexServerServer(indexServer, &impl.IndexesServer{})
+	gogiv1.RegisterIndexServiceServer(indexServer, &impl.IndexServer{})
 
 	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
 	if err := indexServer.Serve(lis); err != nil {
