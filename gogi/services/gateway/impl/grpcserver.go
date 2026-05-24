@@ -24,13 +24,18 @@ func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy) *GrpcServ
 		server:   server,
 	}
 
-	////
+	//
 	// Register proxy handlers
 	//
 
 	gogiv1.RegisterDocumentServerServer(
 		server,
 		&DocumentsProxy{proxy: proxy},
+	)
+
+	gogiv1.RegisterIndexServiceServer(
+		server,
+		&IndexesProxy{proxy: proxy},
 	)
 
 	return grpcServer

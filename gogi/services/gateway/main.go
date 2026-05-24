@@ -17,7 +17,7 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
 	registry.RegisterService("documents", "documents:50054")
-	registry.RegisterService("indexes", "localhost:50055")
+	registry.RegisterService("indexes", "indexes:50055")
 	//registry.RegisterService("ingestion", "localhost:50053")
 	//registry.RegisterService("search", "localhost:50054")
 }
@@ -48,13 +48,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	// figure out the ports for the HTTP server and gRPC server from the environment or config
-	// start the HTTP server in a separate goroutine to handle external traffic
-	// start the gRPC server in a separate goroutine to handle internal traffic from workflows
-
-	log.Infof("API Gateway started and running")
-
-	// Instead of: select {}
+	log.Infof("gRPC API Gateway started and running on port %s", PORT)
 
 	// Use something like this to wait for an interrupt signal
 	if err := grpcServer.Server().Serve(lis); err != nil {

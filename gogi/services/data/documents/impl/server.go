@@ -18,7 +18,10 @@ func (s *DocumentsServer) ListDocuments(ctx context.Context, req *gogiv1.ListDoc
 	log.Infof("Listing documents for %s", indexName)
 
 	return &gogiv1.ListDocumentsResponse{
-		Documents: []*gogiv1.DocumentMetadata{{Name: "example"}},
+		Documents: []*gogiv1.DocumentMetadata{{IndexName: indexName,
+			DocumentId: "example",
+			Filename:   "example",
+			ChunkCount: 1, PageCount: 1, WordCount: 100}},
 	}, nil
 }
 
@@ -30,7 +33,8 @@ func (s *DocumentsServer) GetDocument(ctx context.Context, req *gogiv1.GetDocume
 	// Your logic here
 
 	return &gogiv1.GetDocumentResponse{
-		Document: &gogiv1.DocumentMetadata{Name: "example"},
+		Document: &gogiv1.DocumentMetadata{IndexName: indexName, DocumentId: documentID,
+			Filename: "example", ChunkCount: 1, PageCount: 1, WordCount: 100},
 	}, nil
 }
 
