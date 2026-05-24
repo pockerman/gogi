@@ -30,15 +30,25 @@ services:
       - GOGI_SESSION_SERVICE_ADDR=sessions:50052
       - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
       - GOGI_DOCUMENT_SERVICE_ADDR=documents:50054
+      - GOGI_INDEX_SERVICE_ADDR=indexes:50055
       - GOGI_EMBEDDING_SERVICE_ADDR=embeddings:50055
       - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50056
       - GOGI_LLM_SERVICE_ADDR=llms:50057
     depends_on:
       - documents
+      - indexes
   documents:
     build:  
       context: .
       dockerfile: docker/documents.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GENAI_GATEWAY_URL=gateway:50051
+      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+  indexes:
+    build:  
+      context: .
+      dockerfile: docker/indexes.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
       - GENAI_GATEWAY_URL=gateway:50051

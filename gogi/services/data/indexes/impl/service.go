@@ -1,4 +1,4 @@
-package indexes
+package impl
 
 type IndexService interface {
 	CreateIndex(config IndexConfig) (Index, error)
