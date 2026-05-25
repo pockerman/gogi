@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"gogi/embeddings"
+	"gogi/gogi/embeddings"
+
+	"gogi/gogi/maths/similarity"
 	"gogi/gogi/storage/vector/models"
-	"gogi/maths/similarity"
-	"gogi/storage/vector/models"
 
 	"github.com/google/uuid"
 )
@@ -27,10 +27,10 @@ type storedChunk struct {
 // InMemoryVectorStore is a simple in-memory implementation of the VectorStore interface.
 type InMemoryVectorStore struct {
 	chunks        []storedChunk
-	indexes       map[string]Index
+	indexes       map[string]models.Index
 	documents     map[string]map[string]models.DocumentMetadata
-	jobs          map[string]IngestJob
-	jobPayloads   map[string]JobPayload
+	jobs          map[string]models.IngestJob
+	jobPayloads   map[string]models.JobPayload
 	jobIndexNames map[string]string
 	jobAttempts   map[string]int
 	jobClaimedAt  map[string]time.Time
@@ -41,10 +41,10 @@ type InMemoryVectorStore struct {
 func NewInMemoryVectorStore() *InMemoryVectorStore {
 	return &InMemoryVectorStore{
 		chunks:        []storedChunk{},
-		indexes:       make(map[string]Index),
-		documents:     make(map[string]map[string]DocumentMetadata),
-		jobs:          make(map[string]IngestJob),
-		jobPayloads:   make(map[string]JobPayload),
+		indexes:       make(map[string]models.Index),
+		documents:     make(map[string]map[string]models.DocumentMetadata),
+		jobs:          make(map[string]models.IngestJob),
+		jobPayloads:   make(map[string]models.JobPayload),
 		jobIndexNames: make(map[string]string),
 		jobAttempts:   make(map[string]int),
 		jobClaimedAt:  make(map[string]time.Time),
@@ -251,7 +251,7 @@ func (s *InMemoryVectorStore) KeywordSearch(
 		return scored[i].Score > scored[j].Score
 	})
 
-	results := make([]VectorSearchResult, 0)
+	results := make([]models.VectorSearchResult, 0)
 
 	for i, item := range scored {
 

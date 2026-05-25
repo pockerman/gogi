@@ -52,3 +52,10 @@ This is what your application uses to interact with the platform:
 - <a href="#">Java</a>
 - <a href="#">TypeScript</a>
 
+
+## Run the tests
+
+```
+go test ./...
+```
+

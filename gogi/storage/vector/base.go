@@ -1,24 +1,24 @@
 package vector
 
 import (
-	"gogi/embeddings"
-	"gogi/storage/vector/models"
+	"gogi/gogi/embeddings"
+	"gogi/gogi/storage/vector/models"
 )
 
 // Interface for vector storage.
 // This can be implemented using various backends like in-memory, disk-based, or cloud-based storage.
 type VectorStore interface {
 
-	// nsert chunks with embeddings. Returns count inserted.
+	// Insert chunks with embeddings. Returns count inserted.
 	Insert(index_name string, document_id string,
 		chunkcs []embeddings.Chunk, embeddings [][]float64,
-		metadata map[string]interface{}) (int, error)
+		metadata map[string]string) (int, error)
 
 	// Delete chunks and document metadata for a document. Returns chunks deleted..
-	DeleteByDocumentID(index_name string, document_id string) error
+	DeleteByDocumentID(index_name string, document_id string) (int, error)
 
 	// Cascade-delete chunks, documents, and index metadata. Returns chunks deleted
-	DeleteIndex(index_name string) error
+	DeleteIndex(index_name string) (int, error)
 
 	// Find chunks most similar to the query embedding.
 	Search(query []float64, top_k int, index_name string,

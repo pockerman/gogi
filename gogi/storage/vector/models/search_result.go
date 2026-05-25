@@ -1,4 +1,4 @@
-package vector
+package models
 
 // A single result from vector or hybrid search
 type VectorSearchResult struct {
