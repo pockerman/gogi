@@ -43,16 +43,18 @@ services:
       dockerfile: docker/documents.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_VECTOR_DB_TYPE=in-memory
+      - GOGI_VECTOR_DB_ADDR=in-memory
   indexes:
     build:  
       context: .
       dockerfile: docker/indexes.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
   # data:
   #   build:  
   #     context: .

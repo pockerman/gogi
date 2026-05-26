@@ -1,7 +1,7 @@
 package vector
 
 import (
-	"gogi/gogi/embeddings"
+	"gogi/gogi/chunks"
 	"gogi/gogi/storage/vector/models"
 )
 
@@ -11,7 +11,7 @@ type VectorStore interface {
 
 	// Insert chunks with embeddings. Returns count inserted.
 	Insert(index_name string, document_id string,
-		chunkcs []embeddings.Chunk, embeddings [][]float64,
+		chunks []chunks.Chunk, embeddings [][]float64,
 		metadata map[string]string) (int, error)
 
 	// Delete chunks and document metadata for a document. Returns chunks deleted..

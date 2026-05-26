@@ -3,14 +3,14 @@ package vector
 import (
 	"testing"
 
-	"gogi/gogi/embeddings"
+	"gogi/gogi/chunks"
 )
 
 func TestInsert(t *testing.T) {
 
 	s := NewInMemoryVectorStore()
 
-	chunks := []embeddings.Chunk{
+	chunks := []chunks.Chunk{
 		{Text: "hello world"},
 		{Text: "golang grpc"},
 	}
@@ -49,7 +49,7 @@ func TestDeleteByDocumentID(t *testing.T) {
 
 	s := NewInMemoryVectorStore()
 
-	chunks := []embeddings.Chunk{
+	chunks := []chunks.Chunk{
 		{Text: "chunk one"},
 		{Text: "chunk two"},
 	}
@@ -89,7 +89,7 @@ func TestDeleteIndex(t *testing.T) {
 	_, _ = s.Insert(
 		"index-1",
 		"doc-1",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "hello"},
 		},
 		[][]float64{
@@ -101,7 +101,7 @@ func TestDeleteIndex(t *testing.T) {
 	_, _ = s.Insert(
 		"index-2",
 		"doc-2",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "world"},
 		},
 		[][]float64{
@@ -132,7 +132,7 @@ func TestSearch(t *testing.T) {
 	_, _ = s.Insert(
 		"test-index",
 		"doc-1",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "hello world"},
 		},
 		[][]float64{
@@ -171,7 +171,7 @@ func TestSearchWithMetadataFilter(t *testing.T) {
 	_, _ = s.Insert(
 		"test-index",
 		"doc-1",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "python chunk"},
 		},
 		[][]float64{
@@ -185,7 +185,7 @@ func TestSearchWithMetadataFilter(t *testing.T) {
 	_, _ = s.Insert(
 		"test-index",
 		"doc-2",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "golang chunk"},
 		},
 		[][]float64{
@@ -226,7 +226,7 @@ func TestKeywordSearch(t *testing.T) {
 	_, _ = s.Insert(
 		"docs",
 		"doc-1",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "golang grpc protobuf grpc"},
 		},
 		[][]float64{
@@ -262,7 +262,7 @@ func TestKeywordSearchWithMetadataFilter(t *testing.T) {
 	_, _ = s.Insert(
 		"docs",
 		"doc-1",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "grpc tutorial"},
 		},
 		[][]float64{
@@ -276,7 +276,7 @@ func TestKeywordSearchWithMetadataFilter(t *testing.T) {
 	_, _ = s.Insert(
 		"docs",
 		"doc-2",
-		[]embeddings.Chunk{
+		[]chunks.Chunk{
 			{Text: "grpc reference"},
 		},
 		[][]float64{

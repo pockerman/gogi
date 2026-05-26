@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"gogi/gogi/embeddings"
-
+	"gogi/gogi/chunks"
+	"gogi/gogi/documents"
 	"gogi/gogi/maths/similarity"
 	"gogi/gogi/storage/vector/models"
 
@@ -28,7 +28,7 @@ type storedChunk struct {
 type InMemoryVectorStore struct {
 	chunks        []storedChunk
 	indexes       map[string]models.Index
-	documents     map[string]map[string]models.DocumentMetadata
+	documents     map[string]map[string]documents.DocumentMetadata
 	jobs          map[string]models.IngestJob
 	jobPayloads   map[string]models.JobPayload
 	jobIndexNames map[string]string
@@ -42,7 +42,7 @@ func NewInMemoryVectorStore() *InMemoryVectorStore {
 	return &InMemoryVectorStore{
 		chunks:        []storedChunk{},
 		indexes:       make(map[string]models.Index),
-		documents:     make(map[string]map[string]models.DocumentMetadata),
+		documents:     make(map[string]map[string]documents.DocumentMetadata),
 		jobs:          make(map[string]models.IngestJob),
 		jobPayloads:   make(map[string]models.JobPayload),
 		jobIndexNames: make(map[string]string),
@@ -57,7 +57,7 @@ func NewInMemoryVectorStore() *InMemoryVectorStore {
 func (s *InMemoryVectorStore) Insert(
 	index_name string,
 	document_id string,
-	chunks []embeddings.Chunk,
+	chunks []chunks.Chunk,
 	embeddings [][]float64,
 	metadata map[string]string,
 ) (int, error) {

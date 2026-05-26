@@ -1,4 +1,4 @@
-package embeddings
+package chunks
 
 type Chunk struct {
 	DocumentID  string
