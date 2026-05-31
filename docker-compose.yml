@@ -16,8 +16,19 @@
 # launches it onto the same compose network, so the gateway can route
 # traffic to it.
 
-name: gogi-platform
+name: gogi
 services:
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: gogi
+      POSTGRES_USER: gogi
+      POSTGRES_PASSWORD: gogi
+    ports:
+    - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
   gateway:
     build:
       context: .
@@ -26,6 +37,8 @@ services:
       - "8080:8080"
       - "50051:50051"
     environment:
+      - GOGI_GATEWAY_PORT=:50051
+      - GOGI_GATEWAY_PROTOCOL=tcp
       - GOGI_LOG_LEVEL=debug
       - GOGI_SESSION_SERVICE_ADDR=sessions:50052
       - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
@@ -37,28 +50,68 @@ services:
     depends_on:
       - documents
       - indexes
+      - postgres
   documents:
     build:  
       context: .
       dockerfile: docker/documents.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_DOCUMENTS_VECTOR_DB_TYPE=in-memory
+      - GOGI_DOCUMENTS_VECTOR_DB_ADDR=in-memory
+      - TEMPORAL_HOST=host.docker.internal:7233
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
   indexes:
     build:  
       context: .
       dockerfile: docker/indexes.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
-  # data:
-  #   build:  
-  #     context: .
-  #     dockerfile: docker/data.Dockerfile
-  #   environment:
-  #     - GOGI_LOG_LEVEL=debug
-  #     - GENAI_GATEWAY_URL=gateway:50051
-  #     - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+    depends_on:
+      - postgres
+
+  # The Go Temporal Worker Executes the Go workflow (orchestration)
+  # Runs the orchestration logic (IngestDocumentWorkflow)
+  ingest-documents-go-worker:
+    build:
+      context: .
+      dockerfile: docker/ingest_document_go_worker.Dockerfile 
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - TEMPORAL_HOST=host.docker.internal:7233
+      - WORK_QUEUE=ingestion-document-queue
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      #- temporal
+      - documents # Ensures network is ready
+      - postgres
+    restart: unless-stopped
+  ingest-documents-python-worker:
+    build:
+      context: .
+      dockerfile: docker/ingest_document_python_worker.Dockerfile 
+    environment:
+      - TEMPORAL_HOST=host.docker.internal:7233
+      - TASK_QUEUE=ingestion-document-queue
+      - ACTIVITY_NAME=ingest_document
+      - VECTOR_STORAGE_TYPE=chromadb
+      - VECTOR_STORAGE_HOST=host.docker.internal
+      - VECTOR_STORAGE_PORT=8003
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - documents
+      - postgres
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  
 

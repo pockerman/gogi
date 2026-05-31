@@ -2,6 +2,7 @@ package main
 
 import (
 	"gogi/gogi/services/gateway/impl"
+	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
 	"net"
 
@@ -18,17 +19,35 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
 	registry.RegisterService("documents", "documents:50054")
 	registry.RegisterService("indexes", "indexes:50055")
-	//registry.RegisterService("ingestion", "localhost:50053")
+
 	//registry.RegisterService("search", "localhost:50054")
 }
 
 func main() {
 
-	const PORT string = ":50051"
-	const PROTOCOL string = "tcp"
+	const SERVICE_NAME string = "gateway"
 
-	// initialize the logger for the API Gateway
+	PORT := utils.GetEnv("GOGI_GATEWAY_PORT", ":50051")
+	PROTOCOL := utils.GetEnv("GOGI_GATEWAY_PROTOCOL", "tcp")
+
+	// 1. initialize the logger for the API Gateway
 	utils.InitLogger()
+
+	// 2. Connect to the DB
+	pool, err := postgres.NewPool(
+		utils.GetDatabaseURL(),
+	)
+
+	if err != nil {
+		log.Fatalf("failed to connect to postgres: %v", err)
+	}
+
+	// services do not create the tables. The API service does
+	defer pool.Close()
+
+	// 3. Create the Repositories we need
+	// TODO: This may not be correct here
+	postgres.NewJobsRepository(pool)
 
 	// Run the API Gateway server
 	// - Listen for incoming HTTP requests on a specified port
@@ -48,7 +67,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	log.Infof("gRPC API Gateway started and running on port %s", PORT)
+	log.Infof("Service %s started and running on port %s", SERVICE_NAME, PORT)
 
 	// Use something like this to wait for an interrupt signal
 	if err := grpcServer.Server().Serve(lis); err != nil {

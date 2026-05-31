@@ -1,4 +1,4 @@
-package ingestion
+package models
 
 type IngestJob struct {
 	JobId        string
