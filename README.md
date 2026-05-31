@@ -16,7 +16,6 @@ gogi evolves around a number of services.
 - Guardrails service
 - Monitoring service
 
-
 ## How to install locally
 
 - Pull the source code form <a href="https://github.com/pockerman/gogi">gogi[AI]</a>
@@ -39,11 +38,29 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 ```
 
+- gogi uses <a href="https://temporal.io/">Temporal</a> to manage workflows and various other jobs.
+
+Follow the instructions in the  <a href="https://docs.temporal.io/develop/go/set-up-your-local-go">Install Temporal CLI and start the development server</a> to launch the temporal server locally. Note that currently Temporal runs outside docker, so you need to use the following
+
+- gogi uses PostgreSQL as a general backend. You need to apply the initial migrations before using it
+
+```
+curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xvz
+sudo mv migrate /usr/local/bin/
+```
+
+
+```
+temporal server start-dev --ip 0.0.0.0 --port 7233 
+```
+
 - Use Docker to bring the services up
 
 ```
 docker compose up --build
 ```
+
+
 
 Unless you do some sort of development on the platform itself, you will need one of the supported SDKs.
 This is what your application uses to interact with the platform:
