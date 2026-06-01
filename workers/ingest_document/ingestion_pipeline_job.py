@@ -37,7 +37,8 @@ CHUNKING_STRATEGIES = {}
 
 chunk_router = ChunkingRouter(chunking_strategies=CHUNKING_STRATEGIES)
 
-embeddings_router = EmbeddingsRouter()
+EMBEDDERS = {}
+embeddings_router = EmbeddingsRouter(embedders=EMBEDDERS)
 
 vector_storage_router = VectorStorageRouter(name=os.getenv("VECTOR_STORAGE_TYPE"),
                                             host=os.getenv("VECTOR_STORAGE_HOST"),

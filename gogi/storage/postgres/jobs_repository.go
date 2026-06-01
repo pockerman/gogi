@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"gogi/gogi/utils"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -32,7 +34,7 @@ func (r *JobsRepository) Create(
 			id,
 			document_id,
 			status,
-			worker_id,
+			job_type,
 			error_message
 		)
 		VALUES ($1,$2,$3,$4,$5)
@@ -40,7 +42,7 @@ func (r *JobsRepository) Create(
 		job.ID,
 		job.DocumentID,
 		job.Status,
-		job.WorkerID,
+		job.JobType,
 		job.ErrorMessage,
 	)
 
@@ -65,4 +67,46 @@ func (r *JobsRepository) UpdateStatus(
 	)
 
 	return err
+}
+
+func (r *JobsRepository) GetJob(id string) (Job, error) {
+
+	var job Job
+
+	err := r.pool.QueryRow(
+		context.Background(),
+		`
+		SELECT
+			id,
+			document_id,
+			job_type,
+			status,
+			error_message,
+			created_at,
+			started_at,
+			completed_at
+		FROM jobs
+		WHERE id = $1
+		`,
+		id,
+	).Scan(
+		&job.ID,
+		&job.DocumentID,
+		&job.JobType,
+		&job.Status,
+		&job.ErrorMessage,
+		&job.CreatedAt,
+		&job.StartedAt,
+		&job.CompletedAt,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Job{}, utils.ErrJobNotFound
+	}
+
+	if err != nil {
+		return Job{}, err
+	}
+
+	return job, nil
 }

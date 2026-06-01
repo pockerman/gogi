@@ -17,7 +17,7 @@ class VectorStorageRouter(VectorStorageBase):
 
     def __init__(self, name: str,  host: str, port: int):
         super().__init__(name=name, port=port, host=host)
-        self._impl: VectorStorageBase = VectorStorageRouter.build(name=name, port=port, host=host)
+        self._impl: VectorStorageBase  = None #VectorStorageRouter.build(name=name, port=port, host=host)
 
     @override
     def delete_index(self, index_name: str) -> None:
@@ -55,4 +55,8 @@ class VectorStorageRouter(VectorStorageBase):
         score_threshold: Optional[float] = None) -> List[VectorStoreSearchResult]:
         return self._impl.search(index_name=index_name, query_embedding=query_embedding, top_k=top_k,
                                  metadata_filters=metadata_filters, score_threshold=score_threshold)
-
+    
+    @override
+    def delete_by_document(self, index_name: str, document_id: str) -> int:
+        """Delete chunks and document metadata for a document. Returns chunks deleted."""
+        return self._impl.delete_by_document(index_name=index_name, document_id=document_id)

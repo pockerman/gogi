@@ -61,7 +61,7 @@ func main() {
 	}
 
 	// Inject the temporalClient into your DocumentsServer
-	documentServer := impl.NewDocumentsServer(temporalClient)
+	documentServer := impl.NewDocumentsServer(temporalClient, pool)
 
 	grpcServer := grpc.NewServer()
 	gogiv1.RegisterDocumentServerServer(grpcServer, documentServer)

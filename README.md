@@ -42,14 +42,6 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 Follow the instructions in the  <a href="https://docs.temporal.io/develop/go/set-up-your-local-go">Install Temporal CLI and start the development server</a> to launch the temporal server locally. Note that currently Temporal runs outside docker, so you need to use the following
 
-- gogi uses PostgreSQL as a general backend. You need to apply the initial migrations before using it
-
-```
-curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xvz
-sudo mv migrate /usr/local/bin/
-```
-
-
 ```
 temporal server start-dev --ip 0.0.0.0 --port 7233 
 ```
@@ -59,6 +51,31 @@ temporal server start-dev --ip 0.0.0.0 --port 7233
 ```
 docker compose up --build
 ```
+
+- gogi uses PostgreSQL as a general backend. You need to apply the initial migrations before using it
+
+```
+curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xvz
+sudo mv migrate /usr/local/bin/
+```
+
+Once the services are up and running apply the needed migrations. You need to be at the project root directory for this.
+
+```
+migrate \
+  -path migrations \
+  -database "postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable" \
+  up
+```
+
+Verify that the migrations have been applied. From your host machine:
+
+```
+psql postgres://gogi:gogi@localhost:5432/gogi
+\d
+```
+
+You will need to have a postgres client installed for the above to work.
 
 
 

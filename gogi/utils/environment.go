@@ -2,6 +2,8 @@ package utils
 
 import "os"
 
+const DEFAULT_DB_URL string = "postgres://gogi:gogi@postgres:5432/gogi"
+
 func GetEnv(key string, fallback string) string {
 	value := os.Getenv(key)
 
@@ -15,6 +17,6 @@ func GetEnv(key string, fallback string) string {
 func GetDatabaseURL() string {
 	return GetEnv(
 		"DATABASE_URL",
-		"postgres://gogi:gogi@postgres:5432/gogi",
+		DEFAULT_DB_URL,
 	)
 }

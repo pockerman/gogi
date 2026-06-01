@@ -3,9 +3,13 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/utils"
+	"time"
 
 	"gogi/gogi/documents/workflows"
+	"gogi/gogi/storage/postgres"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc/codes"
@@ -15,11 +19,13 @@ import (
 type DocumentsServer struct {
 	gogiv1.UnimplementedDocumentServerServer
 	temporalClient client.Client // Inject this via dependency injection
+	jobsRepo       postgres.JobsRepository
 }
 
-func NewDocumentsServer(temporalClient client.Client) *DocumentsServer {
+func NewDocumentsServer(temporalClient client.Client, dbClient *pgxpool.Pool) *DocumentsServer {
 	return &DocumentsServer{
 		temporalClient: temporalClient,
+		jobsRepo:       *postgres.NewJobsRepository(dbClient),
 	}
 }
 
@@ -59,13 +65,27 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context, req *gogiv1.Ingest
 		return nil, status.Errorf(codes.Internal, "failed to start workflow: %v", err)
 	}
 
+	jobId := we.GetID()
+
+	job := postgres.Job{
+		ID:           jobId,
+		DocumentID:   req.GetDocumentId(),
+		Status:       utils.JobPending,
+		JobType:      string(utils.DocumentIngestionJob),
+		ErrorMessage: "NONE",
+		CreatedAt:    time.Now(),
+	}
+
+	// we need to update the DB for this
+	s.jobsRepo.Create(ctx, job)
+
 	// 3. Return immediately (Fire-and-Forget pattern)
 	// The client gets a Job ID (Workflow ID) to poll status later if needed
 	return &gogiv1.IngestDocumentJobResponse{
 		IndexName:    req.GetIndexName(),
 		DocumentId:   req.GetDocumentId(),
 		Filename:     req.GetFilename(),
-		Status:       "Processing", // Initial status
+		Status:       string(utils.JobPending), // Initial status
 		Progress:     0.0,
 		JobId:        we.GetID(), // Return the Workflow ID for tracking
 		ErrorMessage: "",
@@ -74,13 +94,13 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context, req *gogiv1.Ingest
 
 func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 
+	// we need to update the DB for this
+	job, _ := s.jobsRepo.GetJob(req.GetJobId())
+
 	return &gogiv1.IngestDocumentJobResponse{
-		DocumentId:   "123",
-		IndexName:    "my-first-index",
-		Filename:     "my-first-doc.txt",
-		Status:       "COMPLETED",
-		Progress:     100.0,
-		ErrorMessage: "None",
+		DocumentId:   job.DocumentID,
+		Status:       string(job.Status),
+		ErrorMessage: job.ErrorMessage,
 	}, nil
 }
 
