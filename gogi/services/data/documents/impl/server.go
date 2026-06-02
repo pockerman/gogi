@@ -9,6 +9,7 @@ import (
 	"gogi/gogi/documents/workflows"
 	"gogi/gogi/storage/postgres"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
@@ -29,12 +30,27 @@ func NewDocumentsServer(temporalClient client.Client, dbClient *pgxpool.Pool) *D
 	}
 }
 
-func (s *DocumentsServer) IngestDocument(ctx context.Context, req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+func (s *DocumentsServer) IngestDocument(ctx context.Context,
+	req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 
 	indexName := req.GetIndexName()
 
 	// Your logic here
 	log.Infof("Ingesting document for %s", indexName)
+
+	// create a Job fof the ingestion
+	newUUID := uuid.New().String()
+	job := postgres.Job{
+		ID:           newUUID,
+		DocumentID:   req.GetDocumentId(),
+		Status:       utils.JobPending,
+		JobType:      string(utils.DocumentIngestionJob),
+		ErrorMessage: "NONE",
+		CreatedAt:    time.Now(),
+	}
+
+	// we need to update the DB for this
+	s.jobsRepo.Create(ctx, job)
 
 	// 1. Map gRPC request to Workflow Config
 	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
@@ -50,10 +66,8 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context, req *gogiv1.Ingest
 
 	// 2. Start the Workflow asynchronously
 	// We generate a deterministic ID based on DocumentID to prevent duplicate processing
-	workflowID := "ingest-" + req.GetDocumentId()
-
 	options := client.StartWorkflowOptions{
-		ID:        workflowID,
+		ID:        newUUID,
 		TaskQueue: "ingestion-document-queue", // Queue where the GO workflow worker is listening
 		// Idempotency: Fail if already running, or use USE_EXISTING to attach to running one
 		WorkflowIDConflictPolicy: 1, // WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
@@ -64,20 +78,6 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context, req *gogiv1.Ingest
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to start workflow: %v", err)
 	}
-
-	jobId := we.GetID()
-
-	job := postgres.Job{
-		ID:           jobId,
-		DocumentID:   req.GetDocumentId(),
-		Status:       utils.JobPending,
-		JobType:      string(utils.DocumentIngestionJob),
-		ErrorMessage: "NONE",
-		CreatedAt:    time.Now(),
-	}
-
-	// we need to update the DB for this
-	s.jobsRepo.Create(ctx, job)
 
 	// 3. Return immediately (Fire-and-Forget pattern)
 	// The client gets a Job ID (Workflow ID) to poll status later if needed

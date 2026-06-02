@@ -1,10 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import Final, Dict
+from enum import StrEnum
 
 from workers.worker_utils.documents.extracted_document import ExtractedDocument
 
 
+class ParserType(StrEnum):
 
+    TEXT = "text"
+    MARKDOWN = "markdown"
+    PDF = "pdf"
+    DOCX = "docx"
+    HTML = "html"
 
 class DocumentParserBase(ABC):
     """Abstract parser interface"""
@@ -32,7 +39,7 @@ class DocumentParserBase(ABC):
         ext = ""
         if "." in filename:
             ext = "." + filename.rsplit(".", 1)[-1].lower()
-        return DocumentParserBase.EXTENSION_MAP.get(ext, "text")
+        return DocumentParserBase.EXTENSION_MAP.get(ext, ParserType.TEXT)
 
     @abstractmethod
     def parse(self, file_bytes: bytes, filename: str) -> ExtractedDocument:
