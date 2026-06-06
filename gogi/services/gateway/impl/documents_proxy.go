@@ -25,3 +25,12 @@ func (p *DocumentsProxy) GetDocument(ctx context.Context, req *gogiv1.GetDocumen
 func (p *DocumentsProxy) DeleteDocument(ctx context.Context, req *gogiv1.DeleteDocumentRequest) (*gogiv1.DeleteDocumentResponse, error) {
 	return p.proxy.ForwardDeleteDocument(ctx, req)
 }
+
+func (p *DocumentsProxy) IngestDocument(ctx context.Context,
+	req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	return p.proxy.ForwardIngestDocument(ctx, req)
+}
+
+func (p *DocumentsProxy) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	return p.proxy.ForwardGetDocumentIngestJob(ctx, req)
+}

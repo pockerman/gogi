@@ -16,8 +16,28 @@
 # launches it onto the same compose network, so the gateway can route
 # traffic to it.
 
-name: gogi-platform
+name: gogi
 services:
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: gogi
+      POSTGRES_USER: gogi
+      POSTGRES_PASSWORD: gogi
+    ports:
+    - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    restart: unless-stopped
   gateway:
     build:
       context: .
@@ -26,6 +46,8 @@ services:
       - "8080:8080"
       - "50051:50051"
     environment:
+      - GOGI_GATEWAY_PORT=:50051
+      - GOGI_GATEWAY_PROTOCOL=tcp
       - GOGI_LOG_LEVEL=debug
       - GOGI_SESSION_SERVICE_ADDR=sessions:50052
       - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
@@ -37,28 +59,83 @@ services:
     depends_on:
       - documents
       - indexes
+      - postgres
   documents:
     build:  
       context: .
       dockerfile: docker/documents.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_VECTOR_DB_TYPE=chroma
+      - GOGI_VECTOR_DB_HOST=chromadb
+      - GOGI_VECTOR_DB_PORT=8000
+      - GOGI_INGESTION_DOCUMENT_QUEUE_NAME=ingestion-document-queue
+      - TEMPORAL_HOST=host.docker.internal:7233
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - chromadb
   indexes:
     build:  
       context: .
       dockerfile: docker/indexes.Dockerfile
     environment:
       - GOGI_LOG_LEVEL=debug
-      - GENAI_GATEWAY_URL=gateway:50051
-      - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
-  # data:
-  #   build:  
-  #     context: .
-  #     dockerfile: docker/data.Dockerfile
-  #   environment:
-  #     - GOGI_LOG_LEVEL=debug
-  #     - GENAI_GATEWAY_URL=gateway:50051
-  #     - GENAI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_VECTOR_DB_TYPE=chroma
+      - GOGI_VECTOR_DB_HOST=chromadb
+      - GOGI_VECTOR_DB_PORT=8000
+    depends_on:
+      - postgres
+      - chromadb
+
+  # The Go Temporal Worker Executes the Go workflow (orchestration)
+  # Runs the orchestration logic (IngestDocumentWorkflow)
+  ingest-documents-go-worker:
+    build:
+      context: .
+      dockerfile: docker/ingest_document_go_worker.Dockerfile 
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - TEMPORAL_HOST=host.docker.internal:7233
+      - WORK_QUEUE=ingestion-document-queue
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      #- temporal
+      - documents # Ensures network is ready
+      - postgres
+      - chromadb
+    restart: unless-stopped
+  ingest-documents-python-worker:
+    build:
+      context: .
+      dockerfile: docker/ingest_document_python_worker.Dockerfile 
+    environment:
+      - TEMPORAL_HOST=host.docker.internal:7233
+      - TASK_QUEUE=ingestion-document-queue
+      - ACTIVITY_NAME=ingest_document
+      - VECTOR_STORAGE_TYPE=chromadb
+      - VECTOR_STORAGE_HOST=chromadb
+      - VECTOR_STORAGE_PORT=8000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=gogi
+      - DB_USER=gogi
+      - DB_PASSWORD=gogi
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - documents
+      - postgres
+      - chromadb
+    restart: unless-stopped
+volumes:
+  postgres-data:
+  chroma-data:
+  
 

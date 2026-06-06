@@ -7,6 +7,8 @@ import (
 	gogiv1 "gogi/gogi/gogi/v1"
 
 	log "github.com/sirupsen/logrus"
+
+	"gogi/gogi/storage/vector_storage"
 )
 
 // IndexServer implements the gRPC server.
@@ -14,6 +16,13 @@ import (
 // This server is responsible for handling index-related operations and maintaining the lifecycle of vector indexes within the platform.
 type IndexServer struct {
 	gogiv1.UnimplementedIndexServiceServer
+	chromaDBClient *vector_storage.ChromaDBClient
+}
+
+func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient) *IndexServer {
+	return &IndexServer{
+		chromaDBClient: chromaDBClient,
+	}
 }
 
 func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRequest) (*gogiv1.IndexResponse, error) {
@@ -22,6 +31,9 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 	owner := req.GetOwner()
 
 	log.Infof("Creating index %s for owner %s", indexName, owner)
+
+	// vector storage create index
+	s.chromaDBClient.CreateCollection(indexName)
 
 	return &gogiv1.IndexResponse{
 		Name: indexName,
