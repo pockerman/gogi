@@ -6,10 +6,9 @@ import (
 )
 
 type Job struct {
-	ID         string
-	DocumentID string
-	Status     utils.JobStatus
-	//WorkerID     string
+	ID           string
+	DocumentID   string
+	Status       utils.JobStatus
 	JobType      string
 	ErrorMessage string
 

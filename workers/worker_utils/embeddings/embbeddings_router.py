@@ -21,4 +21,4 @@ class EmbeddingsRouter:
 
     
     def embed_chunks(self, chunks: List[TextChunk], model: EmbeddingModel, client: EmbeddingClient) -> List[EmbeddingResponse]:
-        return self._embedders[(model, client)].embed_text(chunks=chunks)
+        return self._embedders[(model, client)].embed_chunks(chunks=chunks)

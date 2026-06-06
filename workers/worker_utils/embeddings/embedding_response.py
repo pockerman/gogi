@@ -2,7 +2,7 @@ from pydantic import BaseModel
 
 
 
-class EmbeddingResponse:
+class EmbeddingResponse(BaseModel):
     embeddings: list[float]
     model_name: str
     device: str | None = None

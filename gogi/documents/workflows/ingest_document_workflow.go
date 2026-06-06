@@ -3,12 +3,15 @@ package workflows
 import (
 	"time"
 
+	"gogi/gogi/utils"
+
 	"go.temporal.io/sdk/workflow"
 )
 
 const IngestDocumentWorkflowName = "IngestDocumentWorkflow"
 
 type IngestDocumentWorkflowConfig struct {
+	JobId            string            `json:"job_id"`
 	IndexName        string            `json:"index_name"`
 	Filename         string            `json:"filename"`
 	DocumentID       string            `json:"document_id"`
@@ -23,10 +26,13 @@ type IngestDocumentWorkflowConfig struct {
 // IngestDocumentWorkflow is the workflow definition.
 // It runs inside the Temporal Worker, NOT the gRPC server.
 func IngestDocumentWorkflow(ctx workflow.Context, config IngestDocumentWorkflowConfig) error {
+
+	taskQueueName := utils.GetIngestionDocumentQueueName()
+
 	// Configure options to route to the Python worker's queue
 	opts := workflow.ActivityOptions{
-		TaskQueue:           "ingestion-document-queue", // Matches Python worker
-		StartToCloseTimeout: 10 * time.Minute,           // Adjust based on document size
+		TaskQueue:           taskQueueName,    // Matches Python worker
+		StartToCloseTimeout: 10 * time.Minute, // Adjust based on document size
 		// RetryPolicy can be added here for resilience
 	}
 	ctx = workflow.WithActivityOptions(ctx, opts)

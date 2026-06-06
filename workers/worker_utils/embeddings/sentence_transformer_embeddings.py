@@ -1,5 +1,6 @@
 from sentence_transformers import SentenceTransformer
-from typing import override 
+from typing import override
+from pathlib import Path 
 
 from workers.worker_utils.embeddings.embedding_response import EmbeddingResponse
 from workers.worker_utils.embeddings.embeder_base import EmbeddingBase

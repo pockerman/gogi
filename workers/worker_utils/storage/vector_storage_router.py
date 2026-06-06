@@ -7,7 +7,7 @@ from workers.worker_utils.storage.chromadb_wrapper import ChromaDBHttpWrapper
 class VectorStorageRouter(VectorStorageBase):
 
     @classmethod
-    def build(name: str,  host: str, port: int) -> VectorStorageBase:
+    def build(cls, name: str,  host: str, port: int) -> VectorStorageBase:
 
         if name == "chromadb":
             return ChromaDBHttpWrapper(host=host, port=port)
@@ -17,7 +17,7 @@ class VectorStorageRouter(VectorStorageBase):
 
     def __init__(self, name: str,  host: str, port: int):
         super().__init__(name=name, port=port, host=host)
-        self._impl: VectorStorageBase  = None #VectorStorageRouter.build(name=name, port=port, host=host)
+        self._impl: VectorStorageBase  = VectorStorageRouter.build(name=name, port=port, host=host)
 
     @override
     def delete_index(self, index_name: str) -> None:

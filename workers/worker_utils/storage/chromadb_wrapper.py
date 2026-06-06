@@ -22,6 +22,11 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         self._chroma_client.delete_collection(index_name)
 
     @override
+    def delete_by_document(self, index_name: str, document_id: str) -> int:
+        """Delete chunks and document metadata for a document. Returns chunks deleted."""
+        pass
+
+    @override
     def create_index(self, index_name: str) -> Optional[Any]:
         return self._chroma_client.create_collection(index_name)
     
@@ -52,7 +57,7 @@ class ChromaDBHttpWrapper(VectorStorageBase):
             ids.append(uuid.uuid4().hex)
             documents.append(chunk.text)
             chunk.metadata['document_id'] = document_id
-            metadatas.append[chunk.model_dump()]
+            metadatas.append(chunk.metadata)
 
 
         # You must provide either documents, embeddings, or both. 

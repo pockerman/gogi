@@ -54,21 +54,25 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 
 	// 1. Map gRPC request to Workflow Config
 	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
-		IndexName:       req.GetIndexName(),
-		Filename:        req.GetFilename(),
-		DocumentID:      req.GetDocumentId(),
-		Content:         req.GetContent(),
-		ChunkStrategy:   req.GetChunkStrategy(),
-		EmbeddingsModel: req.GetEmbeddingsModel(),
-		BatchSize:       int(req.GetBatchSize()),
-		Metadata:        req.GetMetadata(),
+		JobId:            job.ID,
+		IndexName:        req.GetIndexName(),
+		Filename:         req.GetFilename(),
+		DocumentID:       req.GetDocumentId(),
+		Content:          req.GetContent(),
+		ChunkStrategy:    req.GetChunkStrategy(),
+		EmbeddingsModel:  req.GetEmbeddingsModel(),
+		EmbeddingsClient: req.GetEmbeddingsClient(),
+		BatchSize:        int(req.GetBatchSize()),
+		Metadata:         req.GetMetadata(),
 	}
+
+	taskQueueName := utils.GetIngestionDocumentQueueName()
 
 	// 2. Start the Workflow asynchronously
 	// We generate a deterministic ID based on DocumentID to prevent duplicate processing
 	options := client.StartWorkflowOptions{
 		ID:        newUUID,
-		TaskQueue: "ingestion-document-queue", // Queue where the GO workflow worker is listening
+		TaskQueue: taskQueueName, // Queue where the GO workflow worker is listening
 		// Idempotency: Fail if already running, or use USE_EXISTING to attach to running one
 		WorkflowIDConflictPolicy: 1, // WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
@@ -98,6 +102,7 @@ func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.
 	job, _ := s.jobsRepo.GetJob(req.GetJobId())
 
 	return &gogiv1.IngestDocumentJobResponse{
+		JobId:        job.ID,
 		DocumentId:   job.DocumentID,
 		Status:       string(job.Status),
 		ErrorMessage: job.ErrorMessage,

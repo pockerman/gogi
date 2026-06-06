@@ -1,11 +1,19 @@
 from abc import ABC, abstractmethod
 import numpy as np
+from io import BytesIO
 from PIL import Image
 from pathlib import Path
 from typing import List
+from enum import StrEnum
 
 from workers.worker_utils.embeddings.embedding_response import EmbeddingResponse
 from workers.worker_utils.chunking.text_chunk_model import TextChunk
+
+class EmbedderClientType(StrEnum):
+    SENTENCE_TRANSFORMER = "sentence-transformer"
+
+class EmbedderModelType(StrEnum):
+    CLIP = "clip"
 
 class EmbeddingBase(ABC):
 
@@ -19,7 +27,7 @@ class EmbeddingBase(ABC):
         if isinstance(img, Path):
             image = Image.open(img)
         elif isinstance(img, bytes):
-            image = Image.open(io.BytesIO(img))
+            image = Image.open(BytesIO(img))
         else:
             raise ValueError("img should be either a Path to an image or bytes")
         return image
