@@ -1,0 +1,5 @@
+ALTER TABLE jobs
+DROP COLUMN job_type;
+
+ALTER TABLE jobs
+ADD COLUMN worker_id VARCHAR(255);

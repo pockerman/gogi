@@ -1,0 +1,6 @@
+chromadb
+loguru
+pillow
+pydantic
+psycopg[binary]
+sentence-transformers

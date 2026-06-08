@@ -99,6 +99,51 @@ func (p *GenericGRPCProxy) ForwardDeleteDocument(
 	return client.DeleteDocument(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardIngestDocument(ctx context.Context, req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+
+	target, err := p.registry.ResolveService("documents")
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := grpc.Dial(
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer conn.Close()
+
+	client := gogiv1.NewDocumentServerClient(conn)
+	return client.IngestDocument(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	target, err := p.registry.ResolveService("documents")
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := grpc.Dial(
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer conn.Close()
+
+	client := gogiv1.NewDocumentServerClient(conn)
+	return client.GetDocumentIngestJob(ctx, req)
+}
+
+// ===============================================================================
+
 // Indexes
 func (p *GenericGRPCProxy) ForwardCreateIndex(
 	ctx context.Context,
