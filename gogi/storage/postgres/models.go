@@ -16,3 +16,11 @@ type Job struct {
 	StartedAt   *time.Time
 	CompletedAt *time.Time
 }
+
+type GogiIndex struct {
+	Id            string
+	Name          string
+	Owner         string
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time
+}

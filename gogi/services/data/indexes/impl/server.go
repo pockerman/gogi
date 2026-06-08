@@ -6,9 +6,12 @@ import (
 
 	gogiv1 "gogi/gogi/gogi/v1"
 
-	log "github.com/sirupsen/logrus"
-
+	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 )
 
 // IndexServer implements the gRPC server.
@@ -17,37 +20,34 @@ import (
 type IndexServer struct {
 	gogiv1.UnimplementedIndexServiceServer
 	chromaDBClient *vector_storage.ChromaDBClient
+	gogiIndexRepo  postgres.GogiIndexRepository
 }
 
-func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient) *IndexServer {
+func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool) *IndexServer {
 	return &IndexServer{
 		chromaDBClient: chromaDBClient,
+		gogiIndexRepo:  *postgres.NewGogiIndexesRepository(dbClient),
 	}
 }
 
 func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRequest) (*gogiv1.IndexResponse, error) {
 
-	indexName := req.GetConfig().GetName()
+	indexName := req.GetIndexName()
 	owner := req.GetOwner()
 
 	log.Infof("Creating index %s for owner %s", indexName, owner)
+
+	newUUID := uuid.New().String()
+	index := postgres.GogiIndex{Name: indexName, Owner: owner, Id: newUUID}
+	s.gogiIndexRepo.Create(ctx, index)
 
 	// vector storage create index
 	s.chromaDBClient.CreateCollection(indexName)
 
 	return &gogiv1.IndexResponse{
-		Name: indexName,
-		Config: &gogiv1.IndexConfig{
-			Name:                indexName,
-			EmbeddingModel:      "text-embedding-3-small",
-			EmbeddingDimensions: 1536,
-			ChunkingStrategy:    "fixed",
-			ChunkSize:           500,
-			ChunkOverlap:        50,
-			MetadataSchema:      map[string]string{"source": "string", "created_at": "timestamp"},
-		},
+		Name:           indexName,
 		Owner:          owner,
-		DocumentCount:  0,
+		Id:             newUUID,
 		CreatedAt:      time.Now().Format(time.RFC3339),
 		LastIngestedAt: time.Now().Format(time.RFC3339),
 	}, nil
@@ -58,24 +58,31 @@ func (s *IndexServer) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRe
 	return &gogiv1.ListIndexesResponse{}, nil
 }
 
-func (s *IndexServer) GetIndex(ctx context.Context, req *gogiv1.GetIndexRequest) (*gogiv1.IndexResponse, error) {
+func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexByNameRequest) (*gogiv1.IndexResponse, error) {
 	log.Infof("Getting index %s", req.GetIndexName())
 
+	index, _ := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
+
 	return &gogiv1.IndexResponse{
-		Name: req.GetIndexName(),
-		Config: &gogiv1.IndexConfig{
-			Name:                req.GetIndexName(),
-			EmbeddingModel:      "text-embedding-3-small",
-			EmbeddingDimensions: 1536,
-			ChunkingStrategy:    "fixed",
-			ChunkSize:           500,
-			ChunkOverlap:        50,
-			MetadataSchema:      map[string]string{"source": "string", "created_at": "timestamp"},
-		},
-		Owner:          "example_owner",
-		DocumentCount:  10,
-		CreatedAt:      time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
-		LastIngestedAt: time.Now().Format(time.RFC3339),
+		Name:           index.Name,
+		Id:             index.Id,
+		Owner:          index.Owner,
+		CreatedAt:      index.CreatedAt.Format(time.RFC3339),
+		LastIngestedAt: index.LastUpdatedAt.Format(time.RFC3339),
+	}, nil
+}
+
+func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexByIdRequest) (*gogiv1.IndexResponse, error) {
+	log.Infof("Getting index %s", req.GetIndexId())
+
+	index, _ := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+
+	return &gogiv1.IndexResponse{
+		Name:           index.Name,
+		Id:             index.Id,
+		Owner:          index.Owner,
+		CreatedAt:      index.CreatedAt.Format(time.RFC3339),
+		LastIngestedAt: index.LastUpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 

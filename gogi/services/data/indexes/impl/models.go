@@ -89,12 +89,10 @@ type IndexConfig struct {
 	MetadataSchema map[string]any
 }
 
-type Index struct {
-	Name           string
-	Config         IndexConfig
-	Owner          string
-	DocumentCount  int32
-	TotalChunks    int32
-	CreatedAt      time.Time
-	LastIngestedAt time.Time
+type GogiIndex struct {
+	Id            string
+	Name          string
+	Owner         string
+	CreatedAt     time.Time
+	LastUpdatedAt time.Time
 }
