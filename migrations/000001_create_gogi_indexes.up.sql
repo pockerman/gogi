@@ -1,0 +1,7 @@
+CREATE TABLE gogi_indexes (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    owner TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
