@@ -45,7 +45,7 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 	s.chromaDBClient.CreateCollection(indexName)
 
 	return &gogiv1.IndexResponse{
-		Name:           indexName,
+		IndexName:      indexName,
 		Owner:          owner,
 		Id:             newUUID,
 		CreatedAt:      time.Now().Format(time.RFC3339),
@@ -64,7 +64,7 @@ func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexBy
 	index, _ := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
 
 	return &gogiv1.IndexResponse{
-		Name:           index.Name,
+		IndexName:      index.Name,
 		Id:             index.Id,
 		Owner:          index.Owner,
 		CreatedAt:      index.CreatedAt.Format(time.RFC3339),
@@ -78,7 +78,7 @@ func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexById
 	index, _ := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
 
 	return &gogiv1.IndexResponse{
-		Name:           index.Name,
+		IndexName:      index.Name,
 		Id:             index.Id,
 		Owner:          index.Owner,
 		CreatedAt:      index.CreatedAt.Format(time.RFC3339),

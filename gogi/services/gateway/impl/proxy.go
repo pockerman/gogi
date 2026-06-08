@@ -170,9 +170,9 @@ func (p *GenericGRPCProxy) ForwardCreateIndex(
 	return client.CreateIndex(ctx, req)
 }
 
-func (p *GenericGRPCProxy) ForwardGetIndex(
+func (p *GenericGRPCProxy) ForwardGetIndexByName(
 	ctx context.Context,
-	req *gogiv1.GetIndexRequest,
+	req *gogiv1.GetIndexByNameRequest,
 ) (*gogiv1.IndexResponse, error) {
 
 	target, err := p.registry.ResolveService("indexes")
@@ -192,7 +192,32 @@ func (p *GenericGRPCProxy) ForwardGetIndex(
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
-	return client.GetIndex(ctx, req)
+	return client.GetIndexByName(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetIndexById(
+	ctx context.Context,
+	req *gogiv1.GetIndexByIdRequest,
+) (*gogiv1.IndexResponse, error) {
+
+	target, err := p.registry.ResolveService("indexes")
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := grpc.Dial(
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer conn.Close()
+
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.GetIndexById(ctx, req)
 }
 
 func (p *GenericGRPCProxy) ForwardListIndexes(

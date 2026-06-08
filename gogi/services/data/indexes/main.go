@@ -2,6 +2,7 @@ package main
 
 import (
 	"gogi/gogi/services/data/indexes/impl"
+	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
 	"gogi/gogi/utils"
 	"net"
@@ -24,6 +25,18 @@ func main() {
 	// initialize the logger for the platform
 	utils.InitLogger()
 
+	// 2. Connect to the DB
+	pool, err := postgres.NewPool(
+		utils.GetDatabaseURL(),
+	)
+
+	if err != nil {
+		log.Fatalf("failed to connect to postgres: %v", err)
+	}
+
+	// services do not create the tables. The API service does
+	defer pool.Close()
+
 	vectorDBConnectionDetails, _ := utils.GetVectorDBStorageConnectionDetails()
 	port, _ := strconv.Atoi(vectorDBConnectionDetails.GOGI_VECTOR_DB_PORT)
 	chromaDBClient := vector_storage.NewChromaDBClient(vectorDBConnectionDetails.GOGI_VECTOR_DB_HOST,
@@ -36,7 +49,7 @@ func main() {
 
 	indexServer := grpc.NewServer()
 
-	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient))
+	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool))
 
 	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
 	if err := indexServer.Serve(lis); err != nil {

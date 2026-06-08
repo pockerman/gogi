@@ -35,7 +35,7 @@ func (r *GogiIndexRepository) Create(
     		VALUES ($1, $2, $3)
 			`, TABLE_NAME)
 
-	_, err := r.pool.Exec(ctx, query)
+	_, err := r.pool.Exec(ctx, query, index.Id, index.Name, index.Owner)
 
 	return err
 }
@@ -45,7 +45,7 @@ func (r *GogiIndexRepository) GetIndexById(id string) (GogiIndex, error) {
 	var index GogiIndex
 
 	query := fmt.Sprintf(`
-    		SELECTid, name, owner, created_at, last_updated_at FROM %s 
+    		SELECT id, name, owner, created_at, last_updated_at FROM %s 
     		WHERE id = $1
 			`, TABLE_NAME)
 
@@ -73,7 +73,7 @@ func (r *GogiIndexRepository) GetIndexByName(name string) (GogiIndex, error) {
 	var index GogiIndex
 
 	query := fmt.Sprintf(`
-    		SELECTid, name, owner, created_at, last_updated_at FROM %s 
+    		SELECT id, name, owner, created_at, last_updated_at FROM %s 
     		WHERE name = $1
 			`, TABLE_NAME)
 
