@@ -14,8 +14,12 @@ func (p *IndexesProxy) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexR
 	return p.proxy.ForwardCreateIndex(ctx, req)
 }
 
-func (p *IndexesProxy) GetIndex(ctx context.Context, req *gogiv1.GetIndexRequest) (*gogiv1.IndexResponse, error) {
-	return p.proxy.ForwardGetIndex(ctx, req)
+func (p *IndexesProxy) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexByNameRequest) (*gogiv1.IndexResponse, error) {
+	return p.proxy.ForwardGetIndexByName(ctx, req)
+}
+
+func (p *IndexesProxy) GetIndexById(ctx context.Context, req *gogiv1.GetIndexByIdRequest) (*gogiv1.IndexResponse, error) {
+	return p.proxy.ForwardGetIndexById(ctx, req)
 }
 
 func (p *IndexesProxy) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRequest) (*gogiv1.ListIndexesResponse, error) {
