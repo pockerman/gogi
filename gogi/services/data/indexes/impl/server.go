@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // IndexServer implements the gRPC server.
@@ -55,7 +57,32 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 
 func (s *IndexServer) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRequest) (*gogiv1.ListIndexesResponse, error) {
 	log.Infof("Listing indexes")
-	return &gogiv1.ListIndexesResponse{}, nil
+
+	indexes, err := s.gogiIndexRepo.GetIndexesForOwner(req.GetOwnerName())
+
+	if err != nil {
+		return nil, status.Errorf(
+			codes.Internal,
+			"failed to list indexes: %v",
+			err,
+		)
+	}
+
+	resp := &gogiv1.ListIndexesResponse{
+		Indexes: make([]*gogiv1.IndexResponse, 0, len(indexes)),
+	}
+
+	for _, idx := range indexes {
+		resp.Indexes = append(resp.Indexes, &gogiv1.IndexResponse{
+			Id:            idx.Id,
+			IndexName:     idx.Name,
+			Owner:         idx.Owner,
+			CreatedAt:     idx.CreatedAt.Format(time.RFC3339),
+			LastUpdatedAt: idx.LastUpdatedAt.Format(time.RFC3339),
+		})
+	}
+
+	return resp, nil
 }
 
 func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexByNameRequest) (*gogiv1.IndexResponse, error) {
@@ -64,11 +91,11 @@ func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexBy
 	index, _ := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
 
 	return &gogiv1.IndexResponse{
-		IndexName:      index.Name,
-		Id:             index.Id,
-		Owner:          index.Owner,
-		CreatedAt:      index.CreatedAt.Format(time.RFC3339),
-		LastIngestedAt: index.LastUpdatedAt.Format(time.RFC3339),
+		IndexName:     index.Name,
+		Id:            index.Id,
+		Owner:         index.Owner,
+		CreatedAt:     index.CreatedAt.Format(time.RFC3339),
+		LastUpdatedAt: index.LastUpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 
@@ -78,11 +105,11 @@ func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexById
 	index, _ := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
 
 	return &gogiv1.IndexResponse{
-		IndexName:      index.Name,
-		Id:             index.Id,
-		Owner:          index.Owner,
-		CreatedAt:      index.CreatedAt.Format(time.RFC3339),
-		LastIngestedAt: index.LastUpdatedAt.Format(time.RFC3339),
+		IndexName:     index.Name,
+		Id:            index.Id,
+		Owner:         index.Owner,
+		CreatedAt:     index.CreatedAt.Format(time.RFC3339),
+		LastUpdatedAt: index.LastUpdatedAt.Format(time.RFC3339),
 	}, nil
 }
 

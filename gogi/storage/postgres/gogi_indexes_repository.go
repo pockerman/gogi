@@ -95,3 +95,52 @@ func (r *GogiIndexRepository) GetIndexByName(name string) (GogiIndex, error) {
 
 	return index, nil
 }
+
+// Return the indexes owned by the given owner
+func (r *GogiIndexRepository) GetIndexesForOwner(owner string) ([]GogiIndex, error) {
+
+	query := fmt.Sprintf(`
+		SELECT
+			id,
+			name,
+			owner,
+			created_at,
+			last_updated_at
+		FROM %s
+		WHERE owner = $1
+		ORDER BY created_at DESC
+	`, TABLE_NAME)
+
+	rows, err := r.pool.Query(context.Background(), query, owner)
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indexes := make([]GogiIndex, 0)
+
+	for rows.Next() {
+		var index GogiIndex
+
+		err := rows.Scan(
+			&index.Id,
+			&index.Name,
+			&index.Owner,
+			&index.CreatedAt,
+			&index.LastUpdatedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		indexes = append(indexes, index)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return indexes, nil
+
+}
