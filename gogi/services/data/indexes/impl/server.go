@@ -47,11 +47,11 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 	s.chromaDBClient.CreateCollection(indexName)
 
 	return &gogiv1.IndexResponse{
-		IndexName:      indexName,
-		Owner:          owner,
-		Id:             newUUID,
-		CreatedAt:      time.Now().Format(time.RFC3339),
-		LastIngestedAt: time.Now().Format(time.RFC3339),
+		IndexName:     indexName,
+		Owner:         owner,
+		Id:            newUUID,
+		CreatedAt:     time.Now().Format(time.RFC3339),
+		LastUpdatedAt: time.Now().Format(time.RFC3339),
 	}, nil
 }
 
