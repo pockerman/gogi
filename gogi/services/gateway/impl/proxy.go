@@ -143,12 +143,8 @@ func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req 
 }
 
 // ===============================================================================
-
 // Indexes
-func (p *GenericGRPCProxy) ForwardCreateIndex(
-	ctx context.Context,
-	req *gogiv1.CreateIndexRequest,
-) (*gogiv1.IndexResponse, error) {
+func (p *GenericGRPCProxy) buildIndexesClient() (*grpc.ClientConn, error) {
 
 	target, err := p.registry.ResolveService("indexes")
 	if err != nil {
@@ -163,6 +159,31 @@ func (p *GenericGRPCProxy) ForwardCreateIndex(
 	if err != nil {
 		return nil, err
 	}
+
+	return conn, nil
+}
+
+// Indexes
+func (p *GenericGRPCProxy) ForwardCreateIndex(
+	ctx context.Context,
+	req *gogiv1.CreateIndexRequest,
+) (*gogiv1.IndexResponse, error) {
+
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	conn, _ := p.buildIndexesClient()
 
 	defer conn.Close()
 
@@ -175,20 +196,21 @@ func (p *GenericGRPCProxy) ForwardGetIndexByName(
 	req *gogiv1.GetIndexByNameRequest,
 ) (*gogiv1.IndexResponse, error) {
 
-	target, err := p.registry.ResolveService("indexes")
-	if err != nil {
-		return nil, err
-	}
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	conn, err := grpc.Dial(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
+	conn, _ := p.buildIndexesClient()
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -200,20 +222,21 @@ func (p *GenericGRPCProxy) ForwardGetIndexById(
 	req *gogiv1.GetIndexByIdRequest,
 ) (*gogiv1.IndexResponse, error) {
 
-	target, err := p.registry.ResolveService("indexes")
-	if err != nil {
-		return nil, err
-	}
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	conn, err := grpc.Dial(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
+	conn, _ := p.buildIndexesClient()
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -225,55 +248,102 @@ func (p *GenericGRPCProxy) ForwardListIndexes(
 	req *gogiv1.ListIndexesRequest,
 ) (*gogiv1.ListIndexesResponse, error) {
 
-	target, err := p.registry.ResolveService("indexes")
-	if err != nil {
-		return nil, err
-	}
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	conn, err := grpc.Dial(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
 
+	conn, _ := p.buildIndexesClient()
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
 	return client.ListIndexes(ctx, req)
 }
 
-func (p *GenericGRPCProxy) ForwardDeleteIndex(
+func (p *GenericGRPCProxy) ForwardDeleteIndexById(
 	ctx context.Context,
-	req *gogiv1.DeleteIndexRequest,
+	req *gogiv1.DeleteIndexByIdRequest,
 ) (*gogiv1.DeleteIndexResponse, error) {
 
-	target, err := p.registry.ResolveService("indexes")
-	if err != nil {
-		return nil, err
-	}
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
 
-	conn, err := grpc.Dial(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
 
-	if err != nil {
-		return nil, err
-	}
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	conn, _ := p.buildIndexesClient()
 
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
-	return client.DeleteIndex(ctx, req)
+	return client.DeleteIndexById(ctx, req)
 }
 
-// Similar forwarding methods would be implemented for other services (sessions, models, indexes, etc.)
+func (p *GenericGRPCProxy) ForwardDeleteIndexByName(
+	ctx context.Context,
+	req *gogiv1.DeleteIndexByNameRequest,
+) (*gogiv1.DeleteIndexResponse, error) {
 
-//
-// Example of how to implement a specific proxy method for the "documents" service.
-// Similar methods would be implemented for other services (sessions, models, indexes, etc.)
-// Each method extracts the target service from the registry, creates a gRPC client stub,
-// and forwards the request while preserving the Protocol Buffer structure.
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	conn, _ := p.buildIndexesClient()
+	defer conn.Close()
+
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.DeleteIndexByName(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeleteOwnerIndexes(
+	ctx context.Context,
+	req *gogiv1.DeleteOwnerIndexesRequest,
+) (*gogiv1.DeleteIndexResponse, error) {
+
+	// target, err := p.registry.ResolveService("indexes")
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// conn, err := grpc.Dial(
+	// 	target,
+	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
+	// )
+
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	conn, _ := p.buildIndexesClient()
+	defer conn.Close()
+
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.DeleteOwnerIndexes(ctx, req)
+}

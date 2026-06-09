@@ -26,6 +26,14 @@ func (p *IndexesProxy) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesR
 	return p.proxy.ForwardListIndexes(ctx, req)
 }
 
-func (p *IndexesProxy) DeleteIndex(ctx context.Context, req *gogiv1.DeleteIndexRequest) (*gogiv1.DeleteIndexResponse, error) {
-	return p.proxy.ForwardDeleteIndex(ctx, req)
+func (p *IndexesProxy) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteIndexByIdRequest) (*gogiv1.DeleteIndexResponse, error) {
+	return p.proxy.ForwardDeleteIndexById(ctx, req)
+}
+
+func (p *IndexesProxy) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {
+	return p.proxy.ForwardDeleteIndexByName(ctx, req)
+}
+
+func (p *IndexesProxy) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
+	return p.proxy.ForwardDeleteOwnerIndexes(ctx, req)
 }

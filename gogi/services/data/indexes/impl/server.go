@@ -128,3 +128,11 @@ func (s *IndexServer) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteInd
 
 	return &gogiv1.DeleteIndexResponse{Success: success}, nil
 }
+
+func (s *IndexServer) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
+	log.Infof("Deleting indexes for owner %s", req.GetOwnerName())
+
+	success, _ := s.gogiIndexRepo.DeleteOwnerIndexes(req.GetOwnerName())
+
+	return &gogiv1.DeleteIndexResponse{Success: success}, nil
+}

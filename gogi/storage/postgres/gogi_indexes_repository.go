@@ -179,7 +179,7 @@ func (r *GogiIndexRepository) DeleteIndexById(index_id string) (bool, error) {
 
 }
 
-// Delete the index with the given id
+// Delete the indexes for the owner with the given name
 func (r *GogiIndexRepository) DeleteOwnerIndexes(owner string) (bool, error) {
 
 	query := fmt.Sprintf(`
