@@ -144,3 +144,54 @@ func (r *GogiIndexRepository) GetIndexesForOwner(owner string) ([]GogiIndex, err
 	return indexes, nil
 
 }
+
+// Delete the index with the given name
+func (r *GogiIndexRepository) DeleteIndexByName(index_name string) (bool, error) {
+
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE name = $1
+	`, TABLE_NAME)
+
+	tag, err := r.pool.Exec(context.Background(), query, index_name)
+	if err != nil {
+		return false, err
+	}
+
+	return tag.RowsAffected() > 0, nil
+
+}
+
+// Delete the index with the given id
+func (r *GogiIndexRepository) DeleteIndexById(index_id string) (bool, error) {
+
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE id = $1
+	`, TABLE_NAME)
+
+	tag, err := r.pool.Exec(context.Background(), query, index_id)
+	if err != nil {
+		return false, err
+	}
+
+	return tag.RowsAffected() > 0, nil
+
+}
+
+// Delete the indexes for the owner with the given name
+func (r *GogiIndexRepository) DeleteOwnerIndexes(owner string) (bool, error) {
+
+	query := fmt.Sprintf(`
+		DELETE FROM %s
+		WHERE owner = $1
+	`, TABLE_NAME)
+
+	tag, err := r.pool.Exec(context.Background(), query, owner)
+	if err != nil {
+		return false, err
+	}
+
+	return tag.RowsAffected() > 0, nil
+
+}

@@ -113,7 +113,26 @@ func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexById
 	}, nil
 }
 
-func (s *IndexServer) DeleteIndex(ctx context.Context, req *gogiv1.DeleteIndexRequest) (*gogiv1.DeleteIndexResponse, error) {
+func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting index %s", req.GetIndexName())
-	return &gogiv1.DeleteIndexResponse{Success: true, ChunksDeleted: 0}, nil
+
+	success, _ := s.gogiIndexRepo.DeleteIndexByName(req.GetIndexName())
+
+	return &gogiv1.DeleteIndexResponse{Success: success}, nil
+}
+
+func (s *IndexServer) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteIndexByIdRequest) (*gogiv1.DeleteIndexResponse, error) {
+	log.Infof("Deleting index %s", req.GetIndexId())
+
+	success, _ := s.gogiIndexRepo.DeleteIndexById(req.GetIndexId())
+
+	return &gogiv1.DeleteIndexResponse{Success: success}, nil
+}
+
+func (s *IndexServer) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
+	log.Infof("Deleting indexes for owner %s", req.GetOwnerName())
+
+	success, _ := s.gogiIndexRepo.DeleteOwnerIndexes(req.GetOwnerName())
+
+	return &gogiv1.DeleteIndexResponse{Success: success}, nil
 }
