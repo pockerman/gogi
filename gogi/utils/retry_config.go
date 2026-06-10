@@ -1,4 +1,4 @@
-package model_service
+package utils
 
 type RetryConfig struct {
 	maxRetries         int

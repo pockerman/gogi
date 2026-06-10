@@ -1,4 +1,4 @@
-package model_service
+package llm
 
 // LLMMessage specify a message to an LLM model
 type LLMMessage struct {

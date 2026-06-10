@@ -1,10 +1,10 @@
-package model_providers
+package providers
 
 import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"gogi/models"
+	"gogi/gogi/llm"
 	"net/http"
 )
 
@@ -24,8 +24,8 @@ func (provider *AnthropicLLMModelProvider) SetApiKey(apiKey string) {
 	provider.apiKey = apiKey
 }
 
-func (provider *AnthropicLLMModelProvider) Run(messages []models.LLMMessage,
-	config models.LLMModelConfig) models.LLModelResponse {
+func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
+	config llm.LLMModelConfig) llm.LLModelResponse {
 
 	body, _ := provider.preparePayload(messages, config)
 
@@ -47,7 +47,7 @@ func (provider *AnthropicLLMModelProvider) Run(messages []models.LLMMessage,
 
 	fmt.Println(result)
 
-	return models.LLModelResponse{
+	return llm.LLModelResponse{
 		Provider: "ANTHROPIC",
 		Response: result,
 	}
@@ -62,8 +62,8 @@ func (provider *AnthropicLLMModelProvider) prepareHeaders(request *http.Request)
 
 }
 
-func (provider *AnthropicLLMModelProvider) preparePayload(messages []models.LLMMessage,
-	config models.LLMModelConfig) ([]byte, error) {
+func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMessage,
+	config llm.LLMModelConfig) ([]byte, error) {
 
 	payload := map[string]interface{}{
 		"model":       config.ModelName,
