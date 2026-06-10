@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+
+metadata:
+
+  name: gateway
+  namespace: gogi
+
+spec:
+
+  selector:
+
+    app: gateway
+
+  ports:
+
+  - port: 50051
+    targetPort: 50051
+
+  type: ClusterIP

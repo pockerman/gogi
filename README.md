@@ -87,6 +87,47 @@ This is what your application uses to interact with the platform:
 - <a href="#">TypeScript</a>
 
 
+## Kubernetes installation
+
+```
+minikube start \
+  --driver=docker \
+  --kubernetes-version=stable \
+  --cpus=4 \
+  --memory=6g
+```
+
+#### Create the namespace
+
+```
+kubectl apply -f k8/namespace.yaml
+```
+
+#### Build docker images directly into Minikube (recommended for development)
+
+```
+minikube image build -t gogi/gateway:latest -f docker/gateway.Dockerfile .
+minikube image build -t gogi/documents:latest -f docker/documents.Dockerfile .
+minikube image build -t gogi/indexes:latest -f docker/indexes.Dockerfile .
+```
+
+#### Deploy the platform
+
+```
+kubectl apply -f k8/postgres/
+kubectl apply -f k8/chromadb/
+
+kubectl apply -f k8/indexes/
+kubectl apply -f k8/documents/
+kubectl apply -f k8/gateway/
+```
+
+#### Check the deployment
+
+```
+kubectl get pods -n gogi
+```
+
 ## Run the tests
 
 ```

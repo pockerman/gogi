@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gogi-config
+  namespace: gogi
+
+data:
+
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+
+  CHROMADB_HOST: chromadb
+  CHROMADB_PORT: "8000"
+
+  DOCUMENT_SERVICE_PORT: "50054"
+  INDEX_SERVICE_PORT: "50055"
+
+  GATEWAY_PORT: "50051"
