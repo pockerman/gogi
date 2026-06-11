@@ -3,6 +3,8 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	LLM "gogi/gogi/llm"
+	"gogi/gogi/llm/providers"
 
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
@@ -30,10 +32,15 @@ import (
 //	GetLLMStatus(GetLLMStatusRequest) returns (LLMStatusResponse);
 //
 
+func toGRPCLLMRunResponse(LLM.LLModelResponse) gogiv1.LLMRunResponse {
+	return gogiv1.LLMRunResponse{}
+}
+
 type LLMModelServer struct {
 	gogiv1.UnimplementedIndexServiceServer
 	chromaDBClient *vector_storage.ChromaDBClient
 	gogiIndexRepo  postgres.GogiIndexRepository
+	providerRouter providers.LLMProviderRouter
 }
 
 func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool) *LLMModelServer {
@@ -44,6 +51,11 @@ func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *
 }
 
 func (s *LLMModelServer) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (gogiv1.LLMRunResponse, error) {
+
+	// the request should specify the model and the provider
+	response, _ := s.providerRouter.Run(req)
+
+	return toGRPCLLMRunResponse(response), nil
 
 }
 
