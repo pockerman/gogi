@@ -32,7 +32,7 @@ func main() {
 
 	const SERVICE_NAME string = "llms"
 
-	PORT := utils.GetEnv("GOGI_LLMS_PORT", ":50055")
+	PORT := utils.GetEnv("GOGI_LLMS_PORT", ":50057")
 	PROTOCOL := utils.GetEnv("GOGI_LLMS_PROTOCOL", "tcp")
 
 	// initialize the logger for the platform
@@ -63,7 +63,7 @@ func main() {
 	modelRouter := buildModelRouterProvider()
 
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterIndexServiceServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter))
+	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter))
 
 	// add the health server
 	healthServer := health.NewServer()

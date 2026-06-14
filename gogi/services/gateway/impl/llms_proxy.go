@@ -8,7 +8,7 @@ import (
 )
 
 type LLMServiceProxy struct {
-	gogiv1.UnimplementedIndexServiceServer
+	gogiv1.UnimplementedLLMModelServerServer
 	proxy *GenericGRPCProxy
 }
 
@@ -16,26 +16,34 @@ func (p *LLMServiceProxy) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (*
 	return p.proxy.ForwardLLMRun(ctx, req)
 }
 
-func (p *LLMServiceProxy) RunStream(ctx context.Context, req *gogiv1.LLMRunRequest,
+func (p *LLMServiceProxy) RunStream(req *gogiv1.LLMRunRequest,
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
-	return p.proxy.ForwardLLMRunStream(ctx, req, stream)
+	return p.proxy.ForwardLLMRunStream(stream.Context(), req, stream)
 }
 
-// func (p *IndexesProxy) GetIndexById(ctx context.Context, req *gogiv1.GetIndexByIdRequest) (*gogiv1.IndexResponse, error) {
-// 	return p.proxy.ForwardGetIndexById(ctx, req)
-// }
+func (p *LLMServiceProxy) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {
+	panic("Not implemented")
+}
 
-// func (p *IndexesProxy) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRequest) (*gogiv1.ListIndexesResponse, error) {
-// 	return p.proxy.ForwardListIndexes(ctx, req)
-// }
+func (p *LLMServiceProxy) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {
+	panic("Not implemented")
+}
 
-// func (p *IndexesProxy) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteIndexByIdRequest) (*gogiv1.DeleteIndexResponse, error) {
-// 	return p.proxy.ForwardDeleteIndexById(ctx, req)
-// }
+func (p *LLMServiceProxy) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (*gogiv1.ListLLMsResponse, error) {
+	panic("Not implemented")
+}
 
-// func (p *IndexesProxy) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {
-// 	return p.proxy.ForwardDeleteIndexByName(ctx, req)
-// }
+func (p *LLMServiceProxy) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {
+	panic("Not implemented")
+}
+
+func (p *LLMServiceProxy) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {
+	panic("Not implemented")
+}
+
+func (p *LLMServiceProxy) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
+	panic("Not implemented")
+}
 
 // func (p *IndexesProxy) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
 // 	return p.proxy.ForwardDeleteOwnerIndexes(ctx, req)

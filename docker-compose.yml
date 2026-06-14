@@ -103,6 +103,7 @@ services:
       - GOGI_VECTOR_DB_TYPE=chroma
       - GOGI_VECTOR_DB_HOST=chromadb
       - GOGI_VECTOR_DB_PORT=8000
+      - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
     depends_on:
       - postgres

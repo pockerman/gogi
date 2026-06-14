@@ -6,6 +6,7 @@ import (
 
 	"fmt"
 
+	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -24,6 +25,7 @@ func fetchLLMModelConfigFromRequest(req *gogiv1.LLMRunRequest) LLM.LLMModelConfi
 }
 
 func (p *LLMProviderRouter) chechProvider(req *gogiv1.LLMRunRequest) (ModelProvider, error) {
+
 	provider, ok := p.providers[req.Config.Provider]
 	if !ok {
 		return nil, fmt.Errorf("unknown provider %q", req.Config.Provider)
@@ -47,7 +49,10 @@ func (p *LLMProviderRouter) Run(req *gogiv1.LLMRunRequest) (LLM.LLModelResponse,
 
 	provider, err := p.chechProvider(req)
 
-	if err == nil {
+	log.Infof("Using provider %s", req.Config.Provider)
+
+	if err != nil {
+		log.Infof("An error occurred %s", err)
 		return LLM.LLModelResponse{}, err
 	}
 
@@ -59,7 +64,7 @@ func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
 
 	provider, err := p.chechProvider(req)
 
-	if err == nil {
+	if err != nil {
 		return err
 	}
 

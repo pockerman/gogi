@@ -1,13 +1,14 @@
 package providers
 
 import (
-	"bytes"
 	"encoding/json"
-	"fmt"
+
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/llm"
 	"net/http"
 
+	"github.com/google/uuid"
+	Log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
 )
 
@@ -21,13 +22,20 @@ const (
 type AnthropicLLMModelProvider struct {
 	apiKey     string
 	httpClient *http.Client
+	name       string
 }
 
 func NewAnthropicLLMModelProvider(apiKey string) *AnthropicLLMModelProvider {
 	return &AnthropicLLMModelProvider{
 		apiKey:     apiKey,
 		httpClient: &http.Client{},
+		name:       "anthropic",
 	}
+}
+
+func (provider *AnthropicLLMModelProvider) Name() string {
+
+	return provider.name
 }
 
 func (provider *AnthropicLLMModelProvider) SetApiKey(apiKey string) {
@@ -37,30 +45,55 @@ func (provider *AnthropicLLMModelProvider) SetApiKey(apiKey string) {
 func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
 	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 
-	body, _ := provider.preparePayload(messages, config)
+	//body, _ := provider.preparePayload(messages, config)
 
-	url := anthropicBaseURL + anthropicMessagesPath
-	request, _ := http.NewRequest("POST",
-		url,
-		bytes.NewBuffer(body))
+	// url := anthropicBaseURL + anthropicMessagesPath
+	// request, _ := http.NewRequest("POST",
+	// 	url,
+	// 	bytes.NewBuffer(body))
 
-	provider.prepareHeaders(request)
+	// provider.prepareHeaders(request)
 
-	resp, err := provider.httpClient.Do(request)
-	if err != nil {
-		panic(err)
+	// resp, err := provider.httpClient.Do(request)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// defer resp.Body.Close()
+
+	// var result map[string]interface{}
+	// json.NewDecoder(resp.Body).Decode(&result)
+
+	// fmt.Println(result)
+
+	tokenUsage := llm.NewTokenUsage(10, 20, 30)
+	// toolCall := llm.NewLLMToolCall(uuid.New().String(), "Test-Tool", "Calendar", "2026-06-14")
+	// respone := llm.NewLLMModelResponse(provider.Name(), config.ModelName,
+	// 	"This is the model response",
+	// 	"Test-API", tokenUsage, toolCall)
+
+	// Log.Infof("Provider response %s", respone)
+	// return *respone, nil
+
+	toolCalls := []llm.LLMToolCall{
+		*llm.NewLLMToolCall(
+			uuid.New().String(),
+			"Test-Tool",
+			"Calendar",
+			"2026-06-14",
+		),
 	}
-	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	response := llm.NewLLMModelResponse(
+		provider.Name(),
+		config.ModelName,
+		"This is the model response",
+		"Test-API",
+		tokenUsage,
+		toolCalls,
+	)
 
-	fmt.Println(result)
-
-	return llm.LLModelResponse{
-		Provider: "ANTHROPIC",
-		Response: result,
-	}, nil
+	Log.Infof("Provider response %s", response)
+	return *response, nil
 
 }
 
