@@ -1,7 +1,8 @@
 package main
 
 import (
-	"gogi/gogi/services/data/indexes/impl"
+	LLM_PROVIDERS "gogi/gogi/llm/providers"
+	"gogi/gogi/services/llms/impl"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
 	"gogi/gogi/utils"
@@ -17,9 +18,19 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
+func buildModelRouterProvider() *LLM_PROVIDERS.LLMProviderRouter {
+
+	anthropicAPIKey := utils.GetEnv("ANTHROPIC_API_KEY", "")
+	providers := map[string]LLM_PROVIDERS.ModelProvider{
+		"anthropic": LLM_PROVIDERS.NewAnthropicLLMModelProvider(anthropicAPIKey),
+	}
+	return LLM_PROVIDERS.NewLLMProviderRouter(providers)
+
+}
+
 func main() {
 
-	const SERVICE_NAME string = "indexes"
+	const SERVICE_NAME string = "llms"
 
 	PORT := utils.GetEnv("GOGI_LLMS_PORT", ":50055")
 	PROTOCOL := utils.GetEnv("GOGI_LLMS_PROTOCOL", "tcp")
@@ -49,9 +60,10 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	modelRouter := buildModelRouterProvider()
 
-	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool))
+	grpcServer := grpc.NewServer()
+	gogiv1.RegisterIndexServiceServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter))
 
 	// add the health server
 	healthServer := health.NewServer()
@@ -59,7 +71,7 @@ func main() {
 	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
-	if err := indexServer.Serve(lis); err != nil {
+	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}
 }

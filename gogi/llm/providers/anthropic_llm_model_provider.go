@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/llm"
 	"net/http"
+
+	"google.golang.org/grpc"
 )
 
 const (
@@ -20,12 +23,19 @@ type AnthropicLLMModelProvider struct {
 	httpClient *http.Client
 }
 
+func NewAnthropicLLMModelProvider(apiKey string) *AnthropicLLMModelProvider {
+	return &AnthropicLLMModelProvider{
+		apiKey:     apiKey,
+		httpClient: &http.Client{},
+	}
+}
+
 func (provider *AnthropicLLMModelProvider) SetApiKey(apiKey string) {
 	provider.apiKey = apiKey
 }
 
 func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
-	config llm.LLMModelConfig) llm.LLModelResponse {
+	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 
 	body, _ := provider.preparePayload(messages, config)
 
@@ -50,8 +60,16 @@ func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
 	return llm.LLModelResponse{
 		Provider: "ANTHROPIC",
 		Response: result,
-	}
+	}, nil
 
+}
+
+func (provider *AnthropicLLMModelProvider) RunStream(
+	messages []llm.LLMMessage,
+	config llm.LLMModelConfig,
+	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse],
+) error {
+	return nil
 }
 
 func (provider *AnthropicLLMModelProvider) prepareHeaders(request *http.Request) {
@@ -74,4 +92,8 @@ func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMess
 
 	body, err := json.Marshal(payload)
 	return body, err
+}
+
+func (provider *AnthropicLLMModelProvider) EstimateCost(tokens []string, model string) (float64, error) {
+	return 10.0, nil
 }

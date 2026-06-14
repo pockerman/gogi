@@ -40,13 +40,15 @@ type LLMModelServer struct {
 	gogiv1.UnimplementedIndexServiceServer
 	chromaDBClient *vector_storage.ChromaDBClient
 	gogiIndexRepo  postgres.GogiIndexRepository
-	providerRouter providers.LLMProviderRouter
+	providerRouter *providers.LLMProviderRouter
 }
 
-func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool) *LLMModelServer {
+func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool,
+	providerRouter *providers.LLMProviderRouter) *LLMModelServer {
 	return &LLMModelServer{
 		chromaDBClient: chromaDBClient,
 		gogiIndexRepo:  *postgres.NewGogiIndexesRepository(dbClient),
+		providerRouter: providerRouter,
 	}
 }
 
@@ -54,36 +56,40 @@ func (s *LLMModelServer) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (go
 
 	// the request should specify the model and the provider
 	response, _ := s.providerRouter.Run(req)
-
 	return toGRPCLLMRunResponse(response), nil
 
 }
 
 func (s *LLMModelServer) RunStream(ctx context.Context, req *gogiv1.LLMRunRequest,
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
+	err := s.providerRouter.RunStream(req, stream)
+	return err
 
 }
 
 func (s *LLMModelServer) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (gogiv1.ListLLMsResponse, error) {
-
+	return gogiv1.ListLLMsResponse{}, nil
 }
 
 func (s *LLMModelServer) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (gogiv1.LLMCapabilitiesResponse, error) {
-
+	return gogiv1.LLMCapabilitiesResponse{}, nil
 }
 
 func (s *LLMModelServer) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (gogiv1.LLMProvidersResponse, error) {
-
+	return gogiv1.LLMProvidersResponse{}, nil
 }
 
 func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (gogiv1.RegisterLLMResponse, error) {
+
+	return gogiv1.RegisterLLMResponse{}, nil
 
 }
 
 func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (gogiv1.ListRegisteredLLMsResponse, error) {
 
+	return gogiv1.ListRegisteredLLMsResponse{}, nil
 }
 
 func (s *LLMModelServer) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (gogiv1.LLMStatusResponse, error) {
-
+	return gogiv1.LLMStatusResponse{}, nil
 }

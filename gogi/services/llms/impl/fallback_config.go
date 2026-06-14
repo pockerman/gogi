@@ -1,4 +1,4 @@
-package model_service
+package impl
 
 import "gogi/gogi/utils"
 
