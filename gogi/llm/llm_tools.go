@@ -11,7 +11,7 @@ type LLMToolCall struct {
 	Function LLMToolCallFunction
 }
 
-func NewLLMToolCall(id, toolType, name, arguments string) LLMToolCall {
-	return LLMToolCall{Id: id, ToolType: toolType,
+func NewLLMToolCall(id, toolType, name, arguments string) *LLMToolCall {
+	return &LLMToolCall{Id: id, ToolType: toolType,
 		Function: LLMToolCallFunction{Name: name, Arguments: arguments}}
 }

@@ -101,13 +101,38 @@ func (s *LLMModelServer) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsReque
 }
 
 func (s *LLMModelServer) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {
+
 	panic("Not implemented")
+	//return &gogiv1.LLMCapabilitiesResponse{}, nil
 	//turn gogiv1.LLMCapabilitiesResponse{}, nil
 }
 
+// Return the list of LLM providers the platform supports
 func (s *LLMModelServer) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {
-	panic("Not implemented")
-	//return gogiv1.LLMProvidersResponse{}, nil
+
+	names := make([]string, 0, 2)
+	names = append(names, "anthropic")
+	names = append(names, "openai")
+
+	providers := make([]*gogiv1.Provider, 0, len(names))
+
+	for _, name := range names {
+
+		p := &gogiv1.Provider{
+			Name: name,
+		}
+
+		if req.FetchModels {
+			models := []string{"claude-sonnet-3.5", "claude-opus-3.5", "claude-sonnet-4.5"}
+			p.Models = models
+		}
+
+		providers = append(providers, p)
+	}
+
+	return &gogiv1.LLMProvidersResponse{
+		Providers: providers,
+	}, nil
 }
 
 func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {

@@ -291,3 +291,12 @@ func (p *GenericGRPCProxy) ForwardLLMRunStream(ctx context.Context, req *gogiv1.
 		}
 	}
 }
+
+func (p *GenericGRPCProxy) ForwardGetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {
+
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.GetLLMProviders(ctx, req)
+}

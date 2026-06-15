@@ -26,7 +26,7 @@ func (p *LLMServiceProxy) GetLLMCapabilities(ctx context.Context, req *gogiv1.Ge
 }
 
 func (p *LLMServiceProxy) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardGetLLMProviders(ctx, req)
 }
 
 func (p *LLMServiceProxy) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (*gogiv1.ListLLMsResponse, error) {
