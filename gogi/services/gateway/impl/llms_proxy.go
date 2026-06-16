@@ -34,7 +34,7 @@ func (p *LLMServiceProxy) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequ
 }
 
 func (p *LLMServiceProxy) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardRegisterLLM(ctx, req)
 }
 
 func (p *LLMServiceProxy) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {

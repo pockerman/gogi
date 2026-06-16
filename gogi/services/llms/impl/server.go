@@ -5,6 +5,7 @@ import (
 	gogiv1 "gogi/gogi/gogi/v1"
 	LLM "gogi/gogi/llm"
 	"gogi/gogi/llm/providers"
+	"time"
 
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
@@ -136,12 +137,17 @@ func (s *LLMModelServer) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLM
 }
 
 func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {
-	panic("Not implemented")
-	//return gogiv1.RegisterLLMResponse{}, nil
+
+	response := &gogiv1.RegisterLLMResponse{Name: req.Info.Name, Status: "registered",
+		RegisteredAt: time.Now().Format(time.RFC3339)}
+
+	Log.Infof("Sending  RegisterLLM response: %s", response)
+	return response, nil
 
 }
 
 func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {
+
 	panic("Not implemented")
 	//return gogiv1.ListRegisteredLLMsResponse{}, nil
 }
