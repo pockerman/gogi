@@ -148,8 +148,43 @@ func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLL
 
 func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {
 
-	panic("Not implemented")
-	//return gogiv1.ListRegisteredLLMsResponse{}, nil
+	models := make([]*gogiv1.RegisteredLLM, 0, 2)
+	models = append(models, &gogiv1.RegisteredLLM{
+		Endpoint:     "http://localhost:8000",
+		HealthCheck:  "http://localhost:8000/health",
+		Status:       "registered",
+		AdapterType:  "",
+		RegisteredAt: time.Now().Format(time.RFC3339),
+		Info: &gogiv1.ModelInfo{Name: "Model-1",
+			Provider: "Ollama",
+			Capabilities: &gogiv1.LLMCapabilities{
+				ContextWindow:     1000,
+				SupportsVision:    true,
+				SupportsTools:     true,
+				SupportsStreaming: true,
+				SupportsJsonMode:  true,
+			}}})
+
+	models = append(models, &gogiv1.RegisteredLLM{
+		Endpoint:     "http://localhost:8000",
+		HealthCheck:  "http://localhost:8000/health",
+		Status:       "registered",
+		AdapterType:  "",
+		RegisteredAt: time.Now().Format(time.RFC3339),
+		Info: &gogiv1.ModelInfo{Name: "Model-1",
+			Provider: "Ollama",
+			Capabilities: &gogiv1.LLMCapabilities{
+				ContextWindow:     1000,
+				SupportsVision:    true,
+				SupportsTools:     true,
+				SupportsStreaming: true,
+				SupportsJsonMode:  true,
+			}}})
+
+	// query the db for the available registered models
+	return &gogiv1.ListRegisteredLLMsResponse{
+		Models: models,
+	}, nil
 }
 
 func (s *LLMModelServer) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
