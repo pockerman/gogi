@@ -97,8 +97,28 @@ func (s *LLMModelServer) RunStream(req *gogiv1.LLMRunRequest,
 }
 
 func (s *LLMModelServer) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (*gogiv1.ListLLMsResponse, error) {
-	panic("Not implemented")
-	//return gogiv1.ListLLMsResponse{}, nil
+
+	models := make([]*gogiv1.ModelInfo, 0, 2)
+
+	models = append(models, &gogiv1.ModelInfo{Name: "Model-1",
+		Provider: "anthropic",
+		Capabilities: &gogiv1.LLMCapabilities{
+			ContextWindow:     1000,
+			SupportsVision:    true,
+			SupportsTools:     true,
+			SupportsStreaming: true,
+			SupportsJsonMode:  true,
+		}})
+	models = append(models, &gogiv1.ModelInfo{Name: "Model-1",
+		Provider: "openai",
+		Capabilities: &gogiv1.LLMCapabilities{
+			ContextWindow:     1000,
+			SupportsVision:    true,
+			SupportsTools:     true,
+			SupportsStreaming: true,
+			SupportsJsonMode:  true,
+		}})
+	return &gogiv1.ListLLMsResponse{Models: models}, nil
 }
 
 func (s *LLMModelServer) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {

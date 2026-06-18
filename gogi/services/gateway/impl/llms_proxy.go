@@ -30,7 +30,7 @@ func (p *LLMServiceProxy) GetLLMProviders(ctx context.Context, req *gogiv1.GetLL
 }
 
 func (p *LLMServiceProxy) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (*gogiv1.ListLLMsResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardListLLMs(ctx, req)
 }
 
 func (p *LLMServiceProxy) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {
@@ -44,7 +44,3 @@ func (p *LLMServiceProxy) ListRegisteredLLMs(ctx context.Context, req *gogiv1.Li
 func (p *LLMServiceProxy) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
 	return p.proxy.ForwardGetLLMStatus(ctx, req)
 }
-
-// func (p *IndexesProxy) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
-// 	return p.proxy.ForwardDeleteOwnerIndexes(ctx, req)
-//}
