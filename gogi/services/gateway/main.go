@@ -17,10 +17,15 @@ import (
 func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 	// Register core platform services (sessions, models, data, etc.) with the registry
 	// This allows the gateway to route gRPC calls to the correct service based on x-target-service header
-	registry.RegisterService("documents", "documents:50054")
-	registry.RegisterService("indexes", "indexes:50055")
 
-	//registry.RegisterService("search", "localhost:50054")
+	documents_addr := utils.GetEnv("GOGI_DOCUMENT_SERVICE_ADDR", "documents:50054")
+	registry.RegisterService("documents", documents_addr)
+
+	indexes_addr := utils.GetEnv("GOGI_INDEX_SERVICE_ADDR", "indexes:50055")
+	registry.RegisterService("indexes", indexes_addr)
+
+	llms_addr := utils.GetEnv("GOGI_LLM_SERVICE_ADDR", "llms:50057")
+	registry.RegisterService("llms", llms_addr)
 }
 
 func main() {

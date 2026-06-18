@@ -1,8 +1,8 @@
-package model_providers
+package providers
 
 import (
 	"encoding/json"
-	"gogenai/model_service"
+	"gogi/gogi/llm"
 	"net/http"
 	"testing"
 )
@@ -10,11 +10,11 @@ import (
 func TestPreparePayload(t *testing.T) {
 	provider := &AnthropicLLMModelProvider{}
 
-	messages := []model_service.LLMMessage{
+	messages := []llm.LLMMessage{
 		{Role: "user", Content: "Hello"},
 	}
 
-	config := model_service.LLMModelConfig{
+	config := llm.LLMModelConfig{
 		ModelName: "claude",
 		MaxTokens: 100,
 	}

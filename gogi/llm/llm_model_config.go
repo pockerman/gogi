@@ -1,4 +1,4 @@
-package model_service
+package llm
 
 type LLMModelConfig struct {
 	ModelName   string
