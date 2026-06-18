@@ -22,7 +22,7 @@ func (p *LLMServiceProxy) RunStream(req *gogiv1.LLMRunRequest,
 }
 
 func (p *LLMServiceProxy) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardGetLLMCapabilities(ctx, req)
 }
 
 func (p *LLMServiceProxy) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {

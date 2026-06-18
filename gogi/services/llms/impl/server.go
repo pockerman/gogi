@@ -103,9 +103,16 @@ func (s *LLMModelServer) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsReque
 
 func (s *LLMModelServer) GetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {
 
-	panic("Not implemented")
-	//return &gogiv1.LLMCapabilitiesResponse{}, nil
-	//turn gogiv1.LLMCapabilitiesResponse{}, nil
+	return &gogiv1.LLMCapabilitiesResponse{
+		Capabilities: &gogiv1.LLMCapabilities{
+			ContextWindow:     1000,
+			SupportsVision:    true,
+			SupportsTools:     true,
+			SupportsStreaming: true,
+			SupportsJsonMode:  true,
+		},
+	}, nil
+
 }
 
 // Return the list of LLM providers the platform supports
