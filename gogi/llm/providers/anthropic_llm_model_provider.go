@@ -2,11 +2,13 @@ package providers
 
 import (
 	"encoding/json"
+	"time"
 
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/llm"
 	"net/http"
 
+	"github.com/gogo/protobuf/proto"
 	"github.com/google/uuid"
 	Log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
@@ -102,7 +104,35 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 	config llm.LLMModelConfig,
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse],
 ) error {
-	return nil
+	tokens := []string{
+		"This ",
+		"is ",
+		"a ",
+		"streamed ",
+		"response.",
+	}
+
+	for _, token := range tokens {
+		err := stream.Send(&gogiv1.LLMStreamChunkResponse{
+			Token: token,
+			Model: config.ModelName,
+		})
+		if err != nil {
+			return err
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return stream.Send(&gogiv1.LLMStreamChunkResponse{
+		Model:        config.ModelName,
+		FinishReason: proto.String("stop"),
+		Usage: &gogiv1.TokenUsage{
+			PromptTokens:     10,
+			CompletionTokens: int32(len(tokens)),
+			TotalTokens:      10 + int32(len(tokens)),
+		},
+	})
 }
 
 func (provider *AnthropicLLMModelProvider) prepareHeaders(request *http.Request) {
