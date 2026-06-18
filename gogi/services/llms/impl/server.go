@@ -188,6 +188,7 @@ func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.Lis
 }
 
 func (s *LLMModelServer) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
-	panic("Not implemented")
-	//return gogiv1.LLMStatusResponse{}, nil
+
+	return &gogiv1.LLMStatusResponse{Name: req.GetName(), Status: "registered",
+		LastChecked: time.Now().Format(time.RFC3339), Endpoint: "http://localhost:8000"}, nil
 }

@@ -318,3 +318,11 @@ func (p *GenericGRPCProxy) ForwardListRegisteredLLMs(ctx context.Context, req *g
 	client := gogiv1.NewLLMModelServerClient(conn)
 	return client.ListRegisteredLLMs(ctx, req)
 }
+
+func (p *GenericGRPCProxy) ForwardGetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.GetLLMStatus(ctx, req)
+}
