@@ -342,3 +342,29 @@ func (p *GenericGRPCProxy) ForwardListLLMs(ctx context.Context, req *gogiv1.List
 	client := gogiv1.NewLLMModelServerClient(conn)
 	return client.ListLLMs(ctx, req)
 }
+
+// ======= Prompts ==========
+
+func (p *GenericGRPCProxy) ForwardRegisterPrompt(ctx context.Context, req *gogiv1.PromptRegistrationRequest) (*gogiv1.PromptRegistrationResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.RegisterPrompt(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetPrompt(ctx context.Context, req *gogiv1.PromptGetRequest) (*gogiv1.PromptGetResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.GetPrompt(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeletePrompt(ctx context.Context, req *gogiv1.PromptDeleteRequest) (*gogiv1.PromptDeleteResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.DeletePrompt(ctx, req)
+}

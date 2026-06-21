@@ -13,8 +13,9 @@ type GogiMinIOClient struct {
 	client *minio.Client
 }
 
-func NewClient() (*minio.Client, error) {
-	return minio.New("localhost:9000", &minio.Options{
+func NewGogiMinIOClient(host string) *GogiMinIOClient{
+	return &GogiMinIOClient{
+		client: minio.New(host, &minio.Options{
 		Creds: credentials.NewStaticV4(
 			"minioadmin",
 			"minioadmin",
@@ -22,12 +23,24 @@ func NewClient() (*minio.Client, error) {
 		),
 		Secure: false, // true if using HTTPS
 	})
+	}
 }
 
-func CreateBucket(client *minio.Client, bucket string) error {
+// func NewClient() (*minio.Client, error) {
+// // 	return minio.New("localhost:9000", &minio.Options{
+// // 		Creds: credentials.NewStaticV4(
+// // 			"minioadmin",
+// // 			"minioadmin",
+// // 			"",
+// // 		),
+// // 		Secure: false, // true if using HTTPS
+// // 	})
+// // }
+
+func (minioClient *GogiMinIOClient) CreateBucket(bucket string) error {
 	ctx := context.Background()
 
-	exists, err := client.BucketExists(ctx, bucket)
+	exists, err := minioClient.client.BucketExists(ctx, bucket)
 	if err != nil {
 		return err
 	}
@@ -36,14 +49,14 @@ func CreateBucket(client *minio.Client, bucket string) error {
 		return nil
 	}
 
-	return client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{})
+	return minioClient.client.MakeBucket(ctx, bucket, minio.MakeBucketOptions{})
 }
 
-func UploadFile(client *minio.Client, bucket, object, filename string) error {
+func (minioClient *GogiMinIOClient) UploadFile(bucket, object, filename string) error {
 
 	ctx := context.Background()
 
-	_, err := client.FPutObject(
+	_, err := minioClient.client.FPutObject(
 		ctx,
 		bucket,
 		object,
@@ -54,8 +67,8 @@ func UploadFile(client *minio.Client, bucket, object, filename string) error {
 	return err
 }
 
-func UploadBytes(
-	client *minio.Client,
+func (minioClient *GogiMinIOClient) UploadBytes(
+	
 	bucket,
 	object string,
 	data []byte,
@@ -64,7 +77,7 @@ func UploadBytes(
 
 	reader := bytes.NewReader(data)
 
-	_, err := client.PutObject(
+	_, err := minioClient.client.PutObject(
 		context.Background(),
 		bucket,
 		object,
@@ -78,13 +91,12 @@ func UploadBytes(
 	return err
 }
 
-func Download(
-	client *minio.Client,
+func (minioClient *GogiMinIOClient) Download(
 	bucket,
 	object string,
 ) ([]byte, error) {
 
-	obj, err := client.GetObject(
+	obj, err := minioClient.client.GetObject(
 		context.Background(),
 		bucket,
 		object,
@@ -98,13 +110,12 @@ func Download(
 	return io.ReadAll(obj)
 }
 
-func Delete(
-	client *minio.Client,
+func (minioClient *GogiMinIOClient) Delete(
 	bucket,
 	object string,
 ) error {
 
-	return client.RemoveObject(
+	return minioClient.client.RemoveObject(
 		context.Background(),
 		bucket,
 		object,
