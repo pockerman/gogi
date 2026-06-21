@@ -20,7 +20,9 @@ func main() {
 
 	PORT := utils.GetEnv("GOGI_PROMPTS_PORT", ":50058")
 	PROTOCOL := utils.GetEnv("GOGI_PROMPTS_PROTOCOL", "tcp")
-	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "tcp")
+	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
+	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
+	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_HOST", "password")
 
 	// initialize the logger for the platform
 	utils.InitLogger()
@@ -42,7 +44,7 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	minioClient := minio.NewGogiMinIOClient(MINIO_HOST)
+	minioClient := minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)
 
 	grpcServer := grpc.NewServer()
 	gogiv1.RegisterPromptServerServer(grpcServer, impl.NewPromptServer(pool, minioClient))

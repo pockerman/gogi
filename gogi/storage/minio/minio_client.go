@@ -13,17 +13,18 @@ type GogiMinIOClient struct {
 	client *minio.Client
 }
 
-func NewGogiMinIOClient(host string) *GogiMinIOClient{
-	return &GogiMinIOClient{
-		client: minio.New(host, &minio.Options{
+func NewGogiMinIOClient(host, user, password string) *GogiMinIOClient {
+
+	client, _ := minio.New(host, &minio.Options{
 		Creds: credentials.NewStaticV4(
-			"minioadmin",
-			"minioadmin",
+			user,
+			password,
 			"",
 		),
 		Secure: false, // true if using HTTPS
 	})
-	}
+
+	return &GogiMinIOClient{client: client}
 }
 
 // func NewClient() (*minio.Client, error) {
@@ -68,7 +69,7 @@ func (minioClient *GogiMinIOClient) UploadFile(bucket, object, filename string) 
 }
 
 func (minioClient *GogiMinIOClient) UploadBytes(
-	
+
 	bucket,
 	object string,
 	data []byte,
