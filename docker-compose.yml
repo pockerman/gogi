@@ -38,6 +38,19 @@ services:
     volumes:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
+  minio:
+    image: minio/minio:latest
+    container_name: exact-marine-minio-container
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - MINIO_REGION=us-east-1
+      - MINIO_PORT=9000
+    restart: unless-stopped
+    ports:
+      - 9001:9001
+      - 9000:9000
+    command: [ "server", "/data", "--console-address", ":9001" ]
   gateway:
     build:
       context: .
@@ -53,9 +66,10 @@ services:
       - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
       - GOGI_DOCUMENT_SERVICE_ADDR=documents:50054
       - GOGI_INDEX_SERVICE_ADDR=indexes:50055
-      - GOGI_EMBEDDING_SERVICE_ADDR=embeddings:50055
-      - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50056
+      - GOGI_EMBEDDING_SERVICE_ADDR=embeddings:50056
       - GOGI_LLM_SERVICE_ADDR=llms:50057
+      - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50059 # TODO Fix this
+      - GOGI_PROMPTS_SERVICE_ADDR=prompts:50058
     depends_on:
       - documents
       - indexes
@@ -92,6 +106,36 @@ services:
     depends_on:
       - postgres
       - chromadb
+  llms:
+    build:
+      context: .
+      dockerfile: docker/llms.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_VECTOR_DB_TYPE=chroma
+      - GOGI_VECTOR_DB_HOST=chromadb
+      - GOGI_VECTOR_DB_PORT=8000
+      - GOGI_LLMS_PORT=:50057
+      - ANTHROPIC_API_KEY=1234569878
+    depends_on:
+      - postgres
+      - chromadb
+  prompts:
+    build:
+      context: .
+      dockerfile: docker/prompts.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_PROMPTS_PORT=:50058
+      - GOGI_MINIO_HOST=minio:9000 
+      - GOGI_MINIO_ROOT_USER=admin
+      - GOGI_MINIO_ROOT_PASSWORD=password
+    depends_on:
+      - postgres
 
   # The Go Temporal Worker Executes the Go workflow (orchestration)
   # Runs the orchestration logic (IngestDocumentWorkflow)

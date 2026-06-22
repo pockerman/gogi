@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"io"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -22,7 +23,26 @@ func NewGenericProxy(registry *ServiceRegistry) *GenericGRPCProxy {
 	return &GenericGRPCProxy{registry: registry}
 }
 
-// Documents
+func (p *GenericGRPCProxy) buildConnection(clientName string) (*grpc.ClientConn, error) {
+
+	target, err := p.registry.ResolveService(clientName)
+	if err != nil {
+		return nil, err
+	}
+
+	conn, err := grpc.Dial(
+		target,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+//======= Documents ==========
 
 func (p *GenericGRPCProxy) ForwardListDocuments(
 	ctx context.Context,
@@ -142,49 +162,14 @@ func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req 
 	return client.GetDocumentIngestJob(ctx, req)
 }
 
-// ===============================================================================
-// Indexes
-func (p *GenericGRPCProxy) buildIndexesClient() (*grpc.ClientConn, error) {
+//======= Indexes ==========
 
-	target, err := p.registry.ResolveService("indexes")
-	if err != nil {
-		return nil, err
-	}
-
-	conn, err := grpc.Dial(
-		target,
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-
-	if err != nil {
-		return nil, err
-	}
-
-	return conn, nil
-}
-
-// Indexes
 func (p *GenericGRPCProxy) ForwardCreateIndex(
 	ctx context.Context,
 	req *gogiv1.CreateIndexRequest,
 ) (*gogiv1.IndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
-
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -196,21 +181,7 @@ func (p *GenericGRPCProxy) ForwardGetIndexByName(
 	req *gogiv1.GetIndexByNameRequest,
 ) (*gogiv1.IndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -222,21 +193,7 @@ func (p *GenericGRPCProxy) ForwardGetIndexById(
 	req *gogiv1.GetIndexByIdRequest,
 ) (*gogiv1.IndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -248,21 +205,7 @@ func (p *GenericGRPCProxy) ForwardListIndexes(
 	req *gogiv1.ListIndexesRequest,
 ) (*gogiv1.ListIndexesResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -274,22 +217,7 @@ func (p *GenericGRPCProxy) ForwardDeleteIndexById(
 	req *gogiv1.DeleteIndexByIdRequest,
 ) (*gogiv1.DeleteIndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
-
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -301,21 +229,7 @@ func (p *GenericGRPCProxy) ForwardDeleteIndexByName(
 	req *gogiv1.DeleteIndexByNameRequest,
 ) (*gogiv1.DeleteIndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
@@ -327,23 +241,130 @@ func (p *GenericGRPCProxy) ForwardDeleteOwnerIndexes(
 	req *gogiv1.DeleteOwnerIndexesRequest,
 ) (*gogiv1.DeleteIndexResponse, error) {
 
-	// target, err := p.registry.ResolveService("indexes")
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// conn, err := grpc.Dial(
-	// 	target,
-	// 	grpc.WithTransportCredentials(insecure.NewCredentials()),
-	// )
-
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	conn, _ := p.buildIndexesClient()
+	conn, _ := p.buildConnection("indexes")
 	defer conn.Close()
 
 	client := gogiv1.NewIndexServiceClient(conn)
 	return client.DeleteOwnerIndexes(ctx, req)
+}
+
+// ======= LLMs ==========
+
+func (p *GenericGRPCProxy) ForwardLLMRun(ctx context.Context, req *gogiv1.LLMRunRequest) (*gogiv1.LLMRunResponse, error) {
+
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.Run(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardLLMRunStream(ctx context.Context, req *gogiv1.LLMRunRequest,
+	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
+
+	conn, err := p.buildConnection("llms")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+
+	clientStream, err := client.RunStream(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	for {
+		chunk, err := clientStream.Recv()
+
+		if err == io.EOF {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
+
+		if err := stream.Send(chunk); err != nil {
+			return err
+		}
+	}
+}
+
+func (p *GenericGRPCProxy) ForwardGetLLMProviders(ctx context.Context, req *gogiv1.GetLLMProvidersRequest) (*gogiv1.LLMProvidersResponse, error) {
+
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.GetLLMProviders(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRegisterLLM(ctx context.Context, req *gogiv1.RegisterLLMRequest) (*gogiv1.RegisterLLMResponse, error) {
+
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.RegisterLLM(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {
+
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.ListRegisteredLLMs(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.GetLLMStatus(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetLLMCapabilities(ctx context.Context, req *gogiv1.GetLLMCapabilitiesRequest) (*gogiv1.LLMCapabilitiesResponse, error) {
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.GetLLMCapabilities(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardListLLMs(ctx context.Context, req *gogiv1.ListLLMsRequest) (*gogiv1.ListLLMsResponse, error) {
+	conn, _ := p.buildConnection("llms")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMModelServerClient(conn)
+	return client.ListLLMs(ctx, req)
+}
+
+// ======= Prompts ==========
+
+func (p *GenericGRPCProxy) ForwardRegisterPrompt(ctx context.Context, req *gogiv1.PromptRegistrationRequest) (*gogiv1.PromptRegistrationResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.RegisterPrompt(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetPrompt(ctx context.Context, req *gogiv1.PromptGetRequest) (*gogiv1.PromptGetResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.GetPrompt(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeletePrompt(ctx context.Context, req *gogiv1.PromptDeleteRequest) (*gogiv1.PromptDeleteResponse, error) {
+	conn, _ := p.buildConnection("prompts")
+	defer conn.Close()
+
+	client := gogiv1.NewPromptServerClient(conn)
+	return client.DeletePrompt(ctx, req)
 }
