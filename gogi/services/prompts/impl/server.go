@@ -33,6 +33,7 @@ func (s *PromptServer) RegisterPrompt(ctx context.Context, req *gogiv1.PromptReg
 func (s *PromptServer) GetPrompt(ctx context.Context, req *gogiv1.PromptGetRequest) (*gogiv1.PromptGetResponse, error) {
 
 	return &gogiv1.PromptGetResponse{
+		PromptId:      req.PromptId,
 		PromptName:    "Stub-Name",
 		PromptVersion: "v1.0.0",
 		GogiIndex:     "my-index",
