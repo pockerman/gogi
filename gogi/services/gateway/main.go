@@ -26,6 +26,9 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 
 	llms_addr := utils.GetEnv("GOGI_LLM_SERVICE_ADDR", "llms:50057")
 	registry.RegisterService("llms", llms_addr)
+
+	prompts_addr := utils.GetEnv("GOGI_PROMPTS_SERVICE_ADDR", "prompts:50058")
+	registry.RegisterService("prompts", prompts_addr)
 }
 
 func main() {
