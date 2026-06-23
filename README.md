@@ -1,3 +1,4 @@
+[![gogi](https://github.com/pockerman/gogi/actions/workflows/build.yml/badge.svg)](https://github.com/pockerman/gogi/actions/workflows/build.yml)
 # gogi[AI]
 
 gogi is a Go based platform for Generative AI/Agentic  applications. In other words, gogi
