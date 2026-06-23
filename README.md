@@ -109,6 +109,8 @@ kubectl apply -f k8/namespace.yaml
 minikube image build -t gogi/gateway:latest -f docker/gateway.Dockerfile .
 minikube image build -t gogi/documents:latest -f docker/documents.Dockerfile .
 minikube image build -t gogi/indexes:latest -f docker/indexes.Dockerfile .
+minikube image build -t gogi/llms:latest -f docker/llms.Dockerfile .
+minikube image build -t gogi/prompts:latest -f docker/prompts.Dockerfile .
 ```
 
 #### Deploy the platform
@@ -120,6 +122,8 @@ kubectl apply -f k8/chromadb/
 kubectl apply -f k8/indexes/
 kubectl apply -f k8/documents/
 kubectl apply -f k8/gateway/
+kubectl apply -f k8/llms/
+kubectl apply -f k8/prompts/
 ```
 
 #### Check the deployment
