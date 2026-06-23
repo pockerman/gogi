@@ -87,7 +87,7 @@ This is what your application uses to interact with the platform:
 - <a href="#">TypeScript</a>
 
 
-## Kubernetes installation
+## Kubernetes installation (development)
 
 ```
 minikube start \
@@ -116,8 +116,9 @@ minikube image build -t gogi/prompts:latest -f docker/prompts.Dockerfile .
 #### Deploy the platform
 
 ```
-kubectl apply -f k8/postgres/
+kubectl apply -f k8/postgresql/
 kubectl apply -f k8/chromadb/
+kubectl apply -f k8/minio/
 
 kubectl apply -f k8/indexes/
 kubectl apply -f k8/documents/
