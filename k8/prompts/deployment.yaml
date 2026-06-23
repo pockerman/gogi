@@ -2,25 +2,25 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
-  name: indexes
+  name: prompts
   namespace: gogi
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: indexes
+      app: prompts
   template:
     metadata:
       labels:
-        app: indexes
+        app: prompts
     spec:
       containers:
-      - name: indexes
-        image: gogi/indexes:latest
+      - name: prompts
+        image: gogi/prompts:latest
         imagePullPolicy: IfNotPresent
 
         ports:
-        - containerPort: 50055
+        - containerPort: 50058
         envFrom:
         - configMapRef:
             name: gogi-config

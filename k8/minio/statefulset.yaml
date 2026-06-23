@@ -2,33 +2,33 @@ apiVersion: apps/v1
 kind: StatefulSet
 
 metadata:
-  name: chromadb
+  name: minio
   namespace: gogi
 
 spec:
 
-  serviceName: chromadb
+  serviceName: minio
   replicas: 1
   selector:
     matchLabels:
-      app: chromadb
+      app: minio
   template:
     metadata:
       labels:
-        app: chromadb
+        app: minio
     spec:
       containers:
-      - name: chromadb
-        image: chromadb/chroma:latest
+      - name: minio
+        image: minio/minio:latest
         ports:
-        - containerPort: 8000
+        - containerPort: 9000
         env:
         - name: IS_PERSISTENT
           value: "TRUE"
         - name: PERSIST_DIRECTORY
           value: /chroma/chroma
         volumeMounts:
-        - name: chroma-storage
+        - name: minio-storage
           mountPath: /chroma/chroma
   volumeClaimTemplates:
   - metadata:

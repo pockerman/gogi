@@ -2,25 +2,25 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
-  name: indexes
+  name: llms
   namespace: gogi
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: indexes
+      app: llms
   template:
     metadata:
       labels:
-        app: indexes
+        app: llms
     spec:
       containers:
-      - name: indexes
-        image: gogi/indexes:latest
+      - name: llms
+        image: gogi/llms:latest
         imagePullPolicy: IfNotPresent
 
         ports:
-        - containerPort: 50055
+        - containerPort: 50057
         envFrom:
         - configMapRef:
             name: gogi-config
