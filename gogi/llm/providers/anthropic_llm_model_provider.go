@@ -94,7 +94,7 @@ func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
 		toolCalls,
 	)
 
-	Log.Infof("Provider response %s", response)
+	Log.Infof("Provider response %+v", response)
 	return *response, nil
 
 }
