@@ -368,3 +368,13 @@ func (p *GenericGRPCProxy) ForwardDeletePrompt(ctx context.Context, req *gogiv1.
 	client := gogiv1.NewPromptServerClient(conn)
 	return client.DeletePrompt(ctx, req)
 }
+
+// ======= llm sessions ==========
+
+func (p *GenericGRPCProxy) ForwardGetOrCreateSession(ctx context.Context, req *gogiv1.GetOrCreateSessionRequest) (*gogiv1.GetOrCreateSessionResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.GetOrCreateSession(ctx, req)
+}

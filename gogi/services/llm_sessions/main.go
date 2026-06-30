@@ -42,7 +42,7 @@ func main() {
 	}
 
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterSessionServerServer(grpcServer, impl.NewLLMSessionServer(pool))
+	gogiv1.RegisterLLMSessionServerServer(grpcServer, impl.NewLLMSessionServer(pool))
 
 	// add the health server
 	healthServer := health.NewServer()

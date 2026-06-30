@@ -3,6 +3,8 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/utils"
+	"time"
 
 	"gogi/gogi/storage/postgres"
 
@@ -10,7 +12,7 @@ import (
 )
 
 type LLMSessionServer struct {
-	gogiv1.UnimplementedSessionServerServer
+	gogiv1.UnimplementedLLMSessionServerServer
 	gogiLLMSessionRepo postgres.GogiLLMSessionRepository
 }
 
@@ -22,7 +24,14 @@ func NewLLMSessionServer(dbClient *pgxpool.Pool) *LLMSessionServer {
 
 func (s *LLMSessionServer) GetOrCreateSession(ctx context.Context, req *gogiv1.GetOrCreateSessionRequest) (*gogiv1.GetOrCreateSessionResponse, error) {
 
-	panic("Not implemented")
+	now := time.Now().Unix()
+	session := gogiv1.Session{
+		SessionId: utils.NewUUIDString(),
+		UserId:    utils.NewUUIDString(),
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	return &gogiv1.GetOrCreateSessionResponse{Session: &session}, nil
 }
 
 func (s *LLMSessionServer) ListSessions(ctx context.Context, req *gogiv1.ListSessionsRequest) (*gogiv1.ListSessionsResponse, error) {
