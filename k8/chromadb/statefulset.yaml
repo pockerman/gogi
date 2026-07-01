@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: StatefulSet
+
+metadata:
+  name: chromadb
+  namespace: gogi
+
+spec:
+
+  serviceName: chromadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: chromadb
+  template:
+    metadata:
+      labels:
+        app: chromadb
+    spec:
+      containers:
+      - name: chromadb
+        image: chromadb/chroma:latest
+        ports:
+        - containerPort: 8000
+        env:
+        - name: IS_PERSISTENT
+          value: "TRUE"
+        - name: PERSIST_DIRECTORY
+          value: /chroma/chroma
+        volumeMounts:
+        - name: chroma-storage
+          mountPath: /chroma/chroma
+  volumeClaimTemplates:
+  - metadata:
+      name: chroma-storage
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 20Gi
