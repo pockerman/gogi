@@ -368,3 +368,46 @@ func (p *GenericGRPCProxy) ForwardDeletePrompt(ctx context.Context, req *gogiv1.
 	client := gogiv1.NewPromptServerClient(conn)
 	return client.DeletePrompt(ctx, req)
 }
+
+// ======= llm sessions ==========
+
+func (p *GenericGRPCProxy) ForwardGetOrCreateSession(ctx context.Context, req *gogiv1.GetOrCreateSessionRequest) (*gogiv1.GetOrCreateSessionResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.GetOrCreateSession(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardAddMessages(ctx context.Context, req *gogiv1.AddMessagesRequest) (*gogiv1.AddMessagesResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.AddMessages(ctx, req)
+
+}
+
+func (p *GenericGRPCProxy) ForwardDeleteSession(ctx context.Context, req *gogiv1.DeleteSessionRequest) (*gogiv1.DeleteSessionResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.DeleteSession(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeleteMemory(ctx context.Context, req *gogiv1.DeleteMemoryRequest) (*gogiv1.DeleteMemoryResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.DeleteMemory(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardClearUserMemory(ctx context.Context, req *gogiv1.ClearUserMemoryRequest) (*gogiv1.ClearUserMemoryResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.ClearUserMemory(ctx, req)
+}
