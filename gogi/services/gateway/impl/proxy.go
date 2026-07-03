@@ -379,6 +379,14 @@ func (p *GenericGRPCProxy) ForwardGetOrCreateSession(ctx context.Context, req *g
 	return client.GetOrCreateSession(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardListSessions(ctx context.Context, req *gogiv1.ListSessionsRequest) (*gogiv1.ListSessionsResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.ListSessions(ctx, req)
+}
+
 func (p *GenericGRPCProxy) ForwardAddMessages(ctx context.Context, req *gogiv1.AddMessagesRequest) (*gogiv1.AddMessagesResponse, error) {
 	conn, _ := p.buildConnection("llm-sessions")
 	defer conn.Close()
@@ -388,12 +396,36 @@ func (p *GenericGRPCProxy) ForwardAddMessages(ctx context.Context, req *gogiv1.A
 
 }
 
+func (p *GenericGRPCProxy) ForwardGetMessages(ctx context.Context, req *gogiv1.GetMessagesRequest) (*gogiv1.GetMessagesResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.GetMessages(ctx, req)
+}
+
 func (p *GenericGRPCProxy) ForwardDeleteSession(ctx context.Context, req *gogiv1.DeleteSessionRequest) (*gogiv1.DeleteSessionResponse, error) {
 	conn, _ := p.buildConnection("llm-sessions")
 	defer conn.Close()
 
 	client := gogiv1.NewLLMSessionServerClient(conn)
 	return client.DeleteSession(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardSaveMemory(ctx context.Context, req *gogiv1.SaveMemoryRequest) (*gogiv1.SaveMemoryResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.SaveMemory(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetMemory(ctx context.Context, req *gogiv1.GetMemoryRequest) (*gogiv1.GetMemoryResponse, error) {
+	conn, _ := p.buildConnection("llm-sessions")
+	defer conn.Close()
+
+	client := gogiv1.NewLLMSessionServerClient(conn)
+	return client.GetMemory(ctx, req)
 }
 
 func (p *GenericGRPCProxy) ForwardDeleteMemory(ctx context.Context, req *gogiv1.DeleteMemoryRequest) (*gogiv1.DeleteMemoryResponse, error) {

@@ -15,7 +15,7 @@ func (p *LLMSessionServiceProxy) GetOrCreateSession(ctx context.Context, req *go
 }
 
 func (p *LLMSessionServiceProxy) ListSessions(ctx context.Context, req *gogiv1.ListSessionsRequest) (*gogiv1.ListSessionsResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardListSessions(ctx, req)
 }
 
 func (p *LLMSessionServiceProxy) AddMessages(ctx context.Context, req *gogiv1.AddMessagesRequest) (*gogiv1.AddMessagesResponse, error) {
@@ -23,7 +23,7 @@ func (p *LLMSessionServiceProxy) AddMessages(ctx context.Context, req *gogiv1.Ad
 }
 
 func (p *LLMSessionServiceProxy) GetMessages(ctx context.Context, req *gogiv1.GetMessagesRequest) (*gogiv1.GetMessagesResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardGetMessages(ctx, req)
 }
 
 func (p *LLMSessionServiceProxy) DeleteSession(ctx context.Context, req *gogiv1.DeleteSessionRequest) (*gogiv1.DeleteSessionResponse, error) {
@@ -31,11 +31,11 @@ func (p *LLMSessionServiceProxy) DeleteSession(ctx context.Context, req *gogiv1.
 }
 
 func (p *LLMSessionServiceProxy) SaveMemory(ctx context.Context, req *gogiv1.SaveMemoryRequest) (*gogiv1.SaveMemoryResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardSaveMemory(ctx, req)
 }
 
 func (p *LLMSessionServiceProxy) GetMemory(ctx context.Context, req *gogiv1.GetMemoryRequest) (*gogiv1.GetMemoryResponse, error) {
-	panic("Not implemented")
+	return p.proxy.ForwardGetMemory(ctx, req)
 }
 
 func (p *LLMSessionServiceProxy) DeleteMemory(ctx context.Context, req *gogiv1.DeleteMemoryRequest) (*gogiv1.DeleteMemoryResponse, error) {
