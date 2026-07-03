@@ -1,8 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
 export PATH="$PATH:$(go env GOPATH)/bin"
 
-protos=$(find third_party/protos/gogi/v1 -name "*.proto")
+protos=$(find third_party/protos/gogi/gogi/v1 -name "*.proto")
 
 protoc \
   -I=third_party/protos/gogi \

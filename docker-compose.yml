@@ -68,8 +68,9 @@ services:
       - GOGI_INDEX_SERVICE_ADDR=indexes:50055
       - GOGI_EMBEDDING_SERVICE_ADDR=embeddings:50056
       - GOGI_LLM_SERVICE_ADDR=llms:50057
-      - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50059 # TODO Fix this
       - GOGI_PROMPTS_SERVICE_ADDR=prompts:50058
+      - GOGI_LLM_SESSIONS_ADDR=llm-sessions:50059
+      - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50059 # TODO Fix this
     depends_on:
       - documents
       - indexes
@@ -136,6 +137,18 @@ services:
       - GOGI_MINIO_ROOT_PASSWORD=password
     depends_on:
       - postgres
+  llm-sessions:
+    build:
+      context: .
+      dockerfile: docker/llm_sessions.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_LLMS_SESSION_PORT=:50059
+    depends_on:
+      - postgres
+
 
   # The Go Temporal Worker Executes the Go workflow (orchestration)
   # Runs the orchestration logic (IngestDocumentWorkflow)
