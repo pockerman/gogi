@@ -71,6 +71,7 @@ services:
       - GOGI_PROMPTS_SERVICE_ADDR=prompts:50058
       - GOGI_LLM_SESSIONS_ADDR=llm-sessions:50059
       - GOGI_LLM_TOOLS_SERVICE_ADDR=llm-tools:50060
+      - GOGI_GUARDRAILS_SERVICE_ADDR=guardrails:50061
       - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50059 # TODO Fix this
     depends_on:
       - documents
@@ -158,6 +159,17 @@ services:
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_LLM_TOOLS_PORT=:50060
+    depends_on:
+      - postgres
+  guardrails:
+    build:
+      context: .
+      dockerfile: docker/guardrails.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_GUARDRAILS_PORT=:50061
     depends_on:
       - postgres
 

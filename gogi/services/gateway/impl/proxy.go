@@ -443,3 +443,95 @@ func (p *GenericGRPCProxy) ForwardClearUserMemory(ctx context.Context, req *gogi
 	client := gogiv1.NewLLMSessionServerClient(conn)
 	return client.ClearUserMemory(ctx, req)
 }
+
+// ======= LLM Tools ==========
+
+func (p *GenericGRPCProxy) ForwardRegisterTool(ctx context.Context, req *gogiv1.RegisterToolRequest) (*gogiv1.RegisterToolResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.RegisterTool(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDiscoverTools(ctx context.Context, req *gogiv1.DiscoverToolsRequest) (*gogiv1.DiscoverToolsResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.DiscoverTools(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardExecuteTool(ctx context.Context, req *gogiv1.ExecuteToolRequest) (*gogiv1.ExecuteToolResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.ExecuteTool(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardValidateTool(ctx context.Context, req *gogiv1.ValidateToolRequest) (*gogiv1.ValidateToolResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.ValidateTool(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardExecuteToolAsync(ctx context.Context, req *gogiv1.ExecuteToolRequest) (*gogiv1.ExecuteToolAsyncResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.ExecuteToolAsync(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetTask(ctx context.Context, req *gogiv1.GetTaskRequest) (*gogiv1.GetTaskResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.GetTask(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRegisterMcpServer(ctx context.Context, req *gogiv1.RegisterMcpServerRequest) (*gogiv1.RegisterMcpServerResponse, error) {
+	conn, _ := p.buildConnection("llm-tools")
+	defer conn.Close()
+
+	client := gogiv1.NewToolServerClient(conn)
+	return client.RegisterMcpServer(ctx, req)
+}
+
+// ======= Guardrails ==========
+
+func (p *GenericGRPCProxy) ForwardValidateInput(ctx context.Context, req *gogiv1.ValidateInputRequest) (*gogiv1.ValidateInputResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.ValidateInput(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardFilterOutput(ctx context.Context, req *gogiv1.FilterOutputRequest) (*gogiv1.FilterOutputResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.FilterOutput(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardCheckPolicy(ctx context.Context, req *gogiv1.CheckPolicyRequest) (*gogiv1.CheckPolicyResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.CheckPolicy(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardReportViolation(ctx context.Context, req *gogiv1.ReportViolationRequest) (*gogiv1.ReportViolationResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.ReportViolation(ctx, req)
+}
