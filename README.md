@@ -2,7 +2,7 @@
 # gogi[AI]
 
 gogi is a Go based platform for Generative AI/Agentic  applications. In other words, gogi
-is an infrastructire layer that supports applucations that use LLM/ML models.
+is an infrastructire layer that supports applications that use LLM/ML models.
 Schematically, this is shown below.
 
 ![gogi high level](./docs/imgs/gogi_high_level.png)
@@ -77,8 +77,6 @@ psql postgres://gogi:gogi@localhost:5432/gogi
 ```
 
 You will need to have a postgres client installed for the above to work.
-
-
 
 Unless you do some sort of development on the platform itself, you will need one of the supported SDKs.
 This is what your application uses to interact with the platform:
