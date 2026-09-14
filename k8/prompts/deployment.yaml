@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: prompts
+  namespace: gogi
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: prompts
+  template:
+    metadata:
+      labels:
+        app: prompts
+    spec:
+      containers:
+      - name: prompts
+        image: gogi/prompts:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50058
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets
+        env:
+        - name: GOGI_MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: gogi-secrets
+              key: MINIO_ROOT_USER
+        - name: GOGI_MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gogi-secrets
+              key: MINIO_ROOT_PASSWORD

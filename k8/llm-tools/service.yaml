@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: llm-tools
+  namespace: gogi
+spec:
+  type: ClusterIP
+  selector:
+    app: llm-tools
+  ports:
+  - name: grpc
+    port: 50060
+    targetPort: 50060
