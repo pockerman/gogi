@@ -75,6 +75,7 @@ services:
     depends_on:
       - documents
       - indexes
+      - workflows
       - postgres
   documents:
     build:  
@@ -158,6 +159,17 @@ services:
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_LLM_TOOLS_PORT=:50060
+    depends_on:
+      - postgres
+  workflows:
+    build:
+      context: .
+      dockerfile: docker/workflows.Dockerfile
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_WORKFLOWS_PORT=:50053
     depends_on:
       - postgres
 
