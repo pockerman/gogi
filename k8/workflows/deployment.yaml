@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: workflows
+  namespace: gogi
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: workflows
+  template:
+    metadata:
+      labels:
+        app: workflows
+    spec:
+      containers:
+      - name: workflows
+        image: gogi/workflows:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50053
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets

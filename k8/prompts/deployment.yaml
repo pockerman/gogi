@@ -26,3 +26,14 @@ spec:
             name: gogi-config
         - secretRef:
             name: gogi-secrets
+        env:
+        - name: GOGI_MINIO_ROOT_USER
+          valueFrom:
+            secretKeyRef:
+              name: gogi-secrets
+              key: MINIO_ROOT_USER
+        - name: GOGI_MINIO_ROOT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: gogi-secrets
+              key: MINIO_ROOT_PASSWORD
