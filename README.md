@@ -88,6 +88,8 @@ This is what your application uses to interact with the platform:
 
 ## Kubernetes installation (development)
 
+#### 1. Start the cluster
+
 ```
 minikube start \
   --driver=docker \
@@ -96,13 +98,19 @@ minikube start \
   --memory=6g
 ```
 
-#### Create the namespace
+#### 2. Create the namespace
+
+Everything else below targets `namespace: gogi`, so it must exist first:
 
 ```
 kubectl apply -f k8/namespace.yaml
 ```
 
-#### Build docker images directly into Minikube (recommended for development)
+#### 3. Build docker images directly into Minikube (recommended for development)
+
+`minikube image build` builds inside the Minikube VM/container's own Docker
+daemon, not your host's, so the images are already there for the kubelet to
+pull with `imagePullPolicy: IfNotPresent`.
 
 ```
 minikube image build -t gogi/gateway:latest -f docker/gateway.Dockerfile .
@@ -110,27 +118,69 @@ minikube image build -t gogi/documents:latest -f docker/documents.Dockerfile .
 minikube image build -t gogi/indexes:latest -f docker/indexes.Dockerfile .
 minikube image build -t gogi/llms:latest -f docker/llms.Dockerfile .
 minikube image build -t gogi/prompts:latest -f docker/prompts.Dockerfile .
+minikube image build -t gogi/llm-sessions:latest -f docker/llm_sessions.Dockerfile .
+minikube image build -t gogi/llm-tools:latest -f docker/llm_tools.Dockerfile .
+minikube image build -t gogi/workflows:latest -f docker/workflows.Dockerfile .
 ```
 
-#### Deploy the platform
+#### 4. Apply the config map and secret
+
+Every service below reads its env vars from these via `envFrom`, so apply
+them first — every other deployment will sit in `CreateContainerConfigError`
+without them:
+
+```
+kubectl apply -f k8/configmap.yaml
+kubectl apply -f k8/secrets.yaml
+```
+
+Edit `k8/secrets.yaml` first if you need a real `ANTHROPIC_API_KEY` in place
+of the `REPLACE_ME` placeholder (the `llms` service will start either way,
+but its calls to Anthropic will fail without a real key).
+
+#### 5. Bring up the stateful infrastructure
 
 ```
 kubectl apply -f k8/postgresql/
 kubectl apply -f k8/chromadb/
 kubectl apply -f k8/minio/
+```
 
+#### 6. Run the database migrations
+
+Postgres has no host port exposed in-cluster (unlike `docker compose`), so
+port-forward to it first:
+
+```
+kubectl port-forward svc/postgres -n gogi 5432:5432 &
+migrate \
+  -path migrations \
+  -database "postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable" \
+  up
+```
+
+#### 7. Deploy the platform services
+
+```
 kubectl apply -f k8/indexes/
 kubectl apply -f k8/documents/
 kubectl apply -f k8/gateway/
 kubectl apply -f k8/llms/
 kubectl apply -f k8/prompts/
+kubectl apply -f k8/llm-sessions/
+kubectl apply -f k8/llm-tools/
+kubectl apply -f k8/workflows/
 ```
 
-#### Check the deployment
+#### 8. Check the deployment
 
 ```
 kubectl get pods -n gogi
 ```
+
+All pods should reach `Running` / `1/1 Ready`. If any sit in
+`CrashLoopBackOff`, `kubectl logs -n gogi <pod>` will usually point straight
+at a missing env var or an unmigrated table.
 
 ## Run the tests
 

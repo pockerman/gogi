@@ -9,7 +9,7 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -o /llm-sessions-service ./gogi/services/llm_sessions
+    go build -o /prompts-service ./gogi/services/prompts
 
 FROM alpine:latest
 
@@ -17,10 +17,10 @@ WORKDIR /root
 
 RUN apk --no-cache add ca-certificates
 
-COPY --from=builder /llm-sessions-service /root/llm-sessions-service
+COPY --from=builder /prompts-service /root/prompts-service
 
-RUN chmod +x /root/llm-sessions-service
+RUN chmod +x /root/prompts-service
 
 EXPOSE 50058
 
-CMD ["/root/llm-sessions-service"]
+CMD ["/root/prompts-service"]
