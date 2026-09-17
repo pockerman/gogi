@@ -78,6 +78,17 @@ psql postgres://gogi:gogi@localhost:5432/gogi
 
 You will need to have a postgres client installed for the above to work.
 
+The migrations create the following tables:
+
+| Migration | Tables |
+|-----------|--------|
+| 000001 / 000002 | `jobs` |
+| 000003 | `gogi_indexes` |
+| 000004 | `gogi_llm_sessions`, `gogi_llm_messages`, `gogi_user_memory` |
+| 000005 | `gogi_prompts` |
+| 000006 | `gogi_tools`, `gogi_tool_tasks` |
+| 000007 | `gogi_workflows`, `gogi_workflow_deployments`, `gogi_routes`, `gogi_workflow_jobs` |
+
 Unless you do some sort of development on the platform itself, you will need one of the supported SDKs.
 This is what your application uses to interact with the platform:
 
