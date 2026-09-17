@@ -41,7 +41,7 @@ jobs:
           ./build_protobuf.sh
 
       - name: Format code
-        run: gofmt -w ./...
+        run: gofmt -w .
 
       - name: Build
         run: go build -v ./...
