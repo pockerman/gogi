@@ -53,7 +53,10 @@ temporal server start-dev --ip 0.0.0.0 --port 7233
 docker compose up --build
 ```
 
-- gogi uses PostgreSQL as a general backend. You need to apply the initial migrations before using it
+---
+**Note:**
+
+``gogi`` uses PostgreSQL as a general backend. You need to apply the initial migrations before using it
 
 ```
 curl -L https://github.com/golang-migrate/migrate/releases/latest/download/migrate.linux-amd64.tar.gz | tar xvz
@@ -77,6 +80,8 @@ psql postgres://gogi:gogi@localhost:5432/gogi
 ```
 
 You will need to have a postgres client installed for the above to work.
+
+---
 
 The migrations create the following tables:
 
