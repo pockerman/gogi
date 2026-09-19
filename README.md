@@ -99,6 +99,8 @@ This is what your application uses to interact with the platform:
 
 ## Kubernetes installation (development)
 
+For the instructions below you will need minikube installed (see instructions how to install for tyour OS here: https://minikube.sigs.k8s.io/docs/start/?arch=%2Flinux%2Fx86-64%2Fstable%2Fbinary+download)
+
 #### 1. Start the cluster
 
 ```
