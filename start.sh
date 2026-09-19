@@ -10,13 +10,20 @@
 #   --skip-migrate          Don't port-forward Postgres and run migrations
 #   -h, --help              Show this help
 #
+# Env vars:
+#   MINIKUBE_CPUS           CPUs given to the cluster (default: 2)
+#   MINIKUBE_MEMORY         Memory given to the cluster, e.g. 2g/4g/6g (default: 2g)
+#                           README recommends 4 CPUs / 6g memory; lower defaults are
+#                           used here to fit memory-constrained hosts. Raise these if
+#                           you have the headroom (check `free -h` before raising).
+#
 # Requires: minikube, kubectl, docker, migrate (golang-migrate) on PATH.
 
 set -euo pipefail
 
 NAMESPACE=gogi
-CPUS=4
-MEMORY=6g
+CPUS="${MINIKUBE_CPUS:-2}"
+MEMORY="${MINIKUBE_MEMORY:-2g}"
 POSTGRES_DSN="postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable"
 
 SKIP_MINIKUBE_START=false
