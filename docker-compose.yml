@@ -21,6 +21,7 @@ services:
 
   postgres:
     image: postgres:16
+    container_name: gogi-postgres
     environment:
       POSTGRES_DB: gogi
       POSTGRES_USER: gogi
@@ -32,15 +33,15 @@ services:
     restart: unless-stopped
   chromadb:
     image: chromadb/chroma:latest
-    container_name: chromadb
+    container_name: gogi-chromadb
     ports:
       - "8000:8000"
     volumes:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
   minio:
-    image: minio/minio:latest
-    container_name: exact-marine-minio-container
+    image: quay.io/minio/minio:latest
+    container_name: gogi-minio
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
@@ -55,6 +56,7 @@ services:
     build:
       context: .
       dockerfile: docker/gateway.Dockerfile
+    container_name: gogi-gateway
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -81,6 +83,7 @@ services:
     build:  
       context: .
       dockerfile: docker/documents.Dockerfile
+    container_name: gogi-documents
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -99,6 +102,7 @@ services:
     build:  
       context: .
       dockerfile: docker/indexes.Dockerfile
+    container_name: gogi-indexes
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -113,6 +117,7 @@ services:
     build:
       context: .
       dockerfile: docker/llms.Dockerfile
+    container_name: gogi-llms
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -129,6 +134,7 @@ services:
     build:
       context: .
       dockerfile: docker/prompts.Dockerfile
+    container_name: gogi-prompts
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -143,6 +149,7 @@ services:
     build:
       context: .
       dockerfile: docker/llm_sessions.Dockerfile
+    container_name: gogi-llm-sessions
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -154,6 +161,7 @@ services:
     build:
       context: .
       dockerfile: docker/llm_tools.Dockerfile
+    container_name: gogi-llm-tools
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -165,6 +173,7 @@ services:
     build:
       context: .
       dockerfile: docker/workflows.Dockerfile
+    container_name: gogi-workflows
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051

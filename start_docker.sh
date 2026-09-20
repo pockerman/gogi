@@ -21,6 +21,9 @@
 
 set -euo pipefail
 
+# Assume that Go is on the Path user may have to edit this
+export PATH="$PATH:$(go env GOPATH)/bin"
+
 POSTGRES_DSN="postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable"
 TEMPORAL_HOST=127.0.0.1
 TEMPORAL_PORT=7233
@@ -98,7 +101,7 @@ if [[ "$FOREGROUND" == true ]]; then
 fi
 
 echo "==> 5. Waiting for Postgres to become ready"
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
   if docker compose exec -T postgres pg_isready -U gogi >/dev/null 2>&1; then
     break
   fi
