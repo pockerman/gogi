@@ -1,8 +1,9 @@
+# syntax=docker/dockerfile:1.7
 # Data Service container — pgvector-backed when VECTOR_STORE=pgvector.
 # ==========================================
 # Build stage
 # ==========================================
-FROM golang:1.25 AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -10,13 +11,16 @@ WORKDIR /app
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 
 # Copy source code
 COPY . .
 
 # Build data service binary
-RUN CGO_ENABLED=0 GOOS=linux \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux \
     go build -o data-service ./gogi
 
 # ==========================================

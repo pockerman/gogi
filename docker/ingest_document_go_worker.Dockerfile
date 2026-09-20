@@ -1,18 +1,22 @@
+# syntax=docker/dockerfile:1.7
 # Stage 1: Build the binary
-FROM golang:1.25 AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
 # Copy dependency files first for better caching
 COPY go.mod go.sum ./
 
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 
 COPY . .
 
 # Build a static binary
 # CGO_ENABLED=0 ensures no external C dependencies are needed
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -o /ingest-document-worker ./gogi/workers/ingest_document
 
 # Stage 2: Minimal runtime image

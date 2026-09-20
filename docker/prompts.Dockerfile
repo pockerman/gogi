@@ -1,14 +1,18 @@
-FROM golang:1.25 AS builder
+# syntax=docker/dockerfile:1.7
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -o /prompts-service ./gogi/services/prompts
 
 FROM alpine:latest

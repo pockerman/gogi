@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # API Gateway container.
 #
 # Exposes 8080 (external HTTP -> workflows) and 50051 (internal gRPC ->
@@ -6,17 +7,20 @@
 # ==========================================
 # Build stage
 # ==========================================
-FROM golang:1.25 AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
 COPY go.mod go.sum ./
 
-RUN go mod download
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go build -o /gateway ./gogi/services/gateway
 
 FROM alpine:latest
