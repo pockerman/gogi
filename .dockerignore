@@ -1,0 +1,10 @@
+.git
+.github
+docs
+k8
+migrations
+third_party
+CONTRIBUTING.md
+README.md
+kubectl
+*.md
