@@ -37,6 +37,76 @@ temporal server start-dev --ip 0.0.0.0 --port 7233
 
 ## Docker installation
 
+This is the fastest way to get the full ``gogi`` platform running locally. It uses
+Docker Compose to start every service (gateway, data, LLM, tools, sessions, prompts,
+workflows, ingest workers) plus their backing infrastructure (PostgreSQL, ChromaDB,
+MinIO).
+
+#### Prerequisites
+
+- ``docker`` with the Compose plugin (``docker compose version`` should work)
+- ``go`` and ``protoc`` on your ``PATH`` (needed once, to generate the protobuf
+  bindings before the images are built — see [Go install](#go-install))
+- ``migrate`` (golang-migrate), used to apply the database migrations — see
+  [Database migration](#database-migration)
+- Temporal running locally, since it is **not** started by Docker Compose — see
+  [Temporal installation](#temporal-installation)
+
+#### 1. Run the install script
+
+From the project root:
+
+```
+./start_docker.sh
+```
+
+This script automates the whole local setup:
+
+1. Updates the ``third_party/protos/gogi`` submodule.
+2. Installs the ``protoc-gen-go`` / ``protoc-gen-go-grpc`` plugins and regenerates
+   the ``.pb.go`` bindings via ``build_protobuf.sh``.
+3. Warns if no Temporal dev server is reachable on ``127.0.0.1:7233``.
+4. Runs ``docker compose up --build -d`` to build the images and start the platform.
+5. Waits for PostgreSQL to become ready.
+6. Applies the database migrations with ``migrate``.
+7. Prints the status of every container.
+
+Useful flags (combine as needed):
+
+| Flag | Effect |
+|------|--------|
+| ``--skip-submodules`` | Don't update the ``third_party/protos/gogi`` submodule |
+| ``--skip-protobuf`` | Don't (re)install protoc plugins or regenerate ``.pb.go`` files |
+| ``--skip-build`` | Run ``docker compose up`` without ``--build`` |
+| ``--skip-migrate`` | Don't run database migrations |
+| ``--foreground`` | Run ``docker compose up`` attached instead of detached |
+| ``-h``, ``--help`` | Show the script's help text |
+
+Once it finishes, the gateway is reachable at ``http://localhost:8080`` (HTTP) and
+``localhost:50051`` (gRPC).
+
+> **Note:** ``docker-compose.yml``'s ``llms`` service ships with a placeholder
+> ``ANTHROPIC_API_KEY``. Edit it there before you can make real Anthropic API calls.
+
+#### 2. Managing the deployment
+
+```
+docker compose logs -f <service>   # tail a specific service
+docker compose ps                  # check container status
+docker compose down                # tear the platform down
+```
+
+#### 3. Running Docker Compose manually
+
+If you'd rather not use the script (for example, the protobuf bindings are already
+generated and you only want to (re)start the containers), you can drive Docker
+Compose directly:
+
+```
+docker compose up --build -d
+docker compose exec -T postgres pg_isready -U gogi
+migrate -path migrations -database "postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable" up
+```
 
 ## Kubernetes installation (development)
 
