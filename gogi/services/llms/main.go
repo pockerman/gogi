@@ -21,8 +21,14 @@ import (
 func buildModelRouterProvider() *LLM_PROVIDERS.LLMProviderRouter {
 
 	anthropicAPIKey := utils.GetEnv("ANTHROPIC_API_KEY", "")
+	openAIProvider := LLM_PROVIDERS.NewOpenAILLMModelProvider(utils.GetEnv("OPENAI_API_KEY", ""))
+	if openAIBaseURL := utils.GetEnv("OPENAI_BASE_URL", ""); openAIBaseURL != "" {
+		openAIProvider.SetBaseURL(openAIBaseURL)
+	}
+
 	providers := map[string]LLM_PROVIDERS.ModelProvider{
 		"anthropic": LLM_PROVIDERS.NewAnthropicLLMModelProvider(anthropicAPIKey),
+		"openai":    openAIProvider,
 	}
 	return LLM_PROVIDERS.NewLLMProviderRouter(providers)
 

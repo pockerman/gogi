@@ -127,6 +127,7 @@ services:
       - GOGI_VECTOR_DB_PORT=8000
       - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
+      - OPENAI_API_KEY=REPLACE_ME
     depends_on:
       - postgres
       - chromadb
