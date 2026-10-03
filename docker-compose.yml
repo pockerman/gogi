@@ -40,7 +40,7 @@ services:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
   minio:
-    image: quay.io/minio/minio:latest
+    image: quay.io/minio/aistor/minio:latest
     container_name: gogi-minio
     environment:
       - MINIO_ROOT_USER=admin
@@ -127,7 +127,7 @@ services:
       - GOGI_VECTOR_DB_PORT=8000
       - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
-      - OPENAI_API_KEY=REPLACE_ME
+      - OPENAI_API_KEY=1234569878
     depends_on:
       - postgres
       - chromadb
@@ -218,6 +218,7 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
+      - OPENAI_API_KEY=1234569878
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
