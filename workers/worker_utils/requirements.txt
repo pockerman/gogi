@@ -4,3 +4,5 @@ pillow
 pydantic
 psycopg[binary]
 sentence-transformers
+pypdf
+openai

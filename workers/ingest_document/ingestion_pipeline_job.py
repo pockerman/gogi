@@ -14,6 +14,7 @@ from loguru import logger
 from workers.worker_utils.documents.parsers.parser_router import ParseRouter
 from workers.worker_utils.documents.parsers.document_parser_base import ParserType
 from workers.worker_utils.documents.parsers.text_parser import TextParser
+from workers.worker_utils.documents.parsers.pdf_parser import PdfParser
 from workers.worker_utils.chunking.chunking_router import ChunkingRouter
 from workers.worker_utils.chunking.chunking_strategy_base import ChunkingType
 from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
@@ -22,6 +23,7 @@ from workers.worker_utils.storage.postgres.db import PostgresDB
 from workers.worker_utils.embeddings.embbeddings_router import EmbeddingsRouter
 from workers.worker_utils.embeddings.embeder_base import EmbedderClientType, EmbedderModelType
 from workers.worker_utils.embeddings.sentence_transformer_embeddings import SentenceTransformerEmbeddings
+from workers.worker_utils.embeddings.openai_embeddings import OpenAIEmbeddings
 from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
@@ -29,7 +31,8 @@ from workers.ingest_document.ingestion_request import DocumentIngestionRequest
 
 PARSERS = {
 
-   ParserType.TEXT: TextParser()
+   ParserType.TEXT: TextParser(),
+   ParserType.PDF: PdfParser(),
 }
 
 parse_router = ParseRouter(parsers=PARSERS)
@@ -42,8 +45,9 @@ CHUNKING_STRATEGIES = {
 chunk_router = ChunkingRouter(chunking_strategies=CHUNKING_STRATEGIES)
 
 EMBEDDERS = {
-    
-   (EmbedderModelType.CLIP, EmbedderClientType.SENTENCE_TRANSFORMER): SentenceTransformerEmbeddings()
+
+   (EmbedderModelType.CLIP, EmbedderClientType.SENTENCE_TRANSFORMER): SentenceTransformerEmbeddings(),
+   (EmbedderModelType.TEXT_EMBEDDING_3_SMALL, EmbedderClientType.OPENAI): OpenAIEmbeddings(),
 }
 
 embeddings_router = EmbeddingsRouter(embedders=EMBEDDERS)

@@ -121,6 +121,7 @@ docker compose ps
 
 echo "==> gogi platform is up. Gateway: http://localhost:8080 (gRPC :50051)."
 echo "    Note: docker-compose.yml's llms service ships with a placeholder"
-echo "    ANTHROPIC_API_KEY; edit it there for real Anthropic calls to work."
+echo "    ANTHROPIC_API_KEY and OPENAI_API_KEY; edit them there for real"
+echo "    Anthropic/OpenAI calls to work."
 echo "    Use 'docker compose logs -f <service>' to tail a service, and"
 echo "    'docker compose down' to tear the platform down."

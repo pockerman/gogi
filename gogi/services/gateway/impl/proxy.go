@@ -443,3 +443,141 @@ func (p *GenericGRPCProxy) ForwardClearUserMemory(ctx context.Context, req *gogi
 	client := gogiv1.NewLLMSessionServerClient(conn)
 	return client.ClearUserMemory(ctx, req)
 }
+
+// ======= Workflows ==========
+
+func (p *GenericGRPCProxy) ForwardRegisterWorkflow(ctx context.Context, req *gogiv1.RegisterWorkflowRequest) (*gogiv1.RegisterWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.RegisterWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetWorkflow(ctx context.Context, req *gogiv1.GetWorkflowRequest) (*gogiv1.GetWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.GetWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardListWorkflows(ctx context.Context, req *gogiv1.ListWorkflowsRequest) (*gogiv1.ListWorkflowsResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.ListWorkflows(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardUpdateWorkflow(ctx context.Context, req *gogiv1.UpdateWorkflowRequest) (*gogiv1.UpdateWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.UpdateWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeleteWorkflow(ctx context.Context, req *gogiv1.DeleteWorkflowRequest) (*gogiv1.DeleteWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.DeleteWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardDeployWorkflow(ctx context.Context, req *gogiv1.DeployWorkflowRequest) (*gogiv1.DeployWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.DeployWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetDeploymentStatus(ctx context.Context, req *gogiv1.GetDeploymentStatusRequest) (*gogiv1.GetDeploymentStatusResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.GetDeploymentStatus(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRollbackWorkflow(ctx context.Context, req *gogiv1.RollbackWorkflowRequest) (*gogiv1.RollbackWorkflowResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.RollbackWorkflow(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRegisterRoute(ctx context.Context, req *gogiv1.RegisterRouteRequest) (*gogiv1.RegisterRouteResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.RegisterRoute(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardListRoutes(ctx context.Context, req *gogiv1.ListRoutesRequest) (*gogiv1.ListRoutesResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.ListRoutes(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardCreateJob(ctx context.Context, req *gogiv1.CreateJobRequest) (*gogiv1.CreateJobResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.CreateJob(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetJobStatus(ctx context.Context, req *gogiv1.GetJobStatusRequest) (*gogiv1.GetJobStatusResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.GetJobStatus(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardUpdateJobProgress(ctx context.Context, req *gogiv1.UpdateJobProgressRequest) (*gogiv1.UpdateJobProgressResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.UpdateJobProgress(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardSaveJobCheckpoint(ctx context.Context, req *gogiv1.SaveJobCheckpointRequest) (*gogiv1.SaveJobCheckpointResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.SaveJobCheckpoint(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardCompleteJob(ctx context.Context, req *gogiv1.CompleteJobRequest) (*gogiv1.CompleteJobResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.CompleteJob(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardFailJob(ctx context.Context, req *gogiv1.FailJobRequest) (*gogiv1.FailJobResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.FailJob(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardCancelJob(ctx context.Context, req *gogiv1.CancelJobRequest) (*gogiv1.CancelJobResponse, error) {
+	conn, _ := p.buildConnection("workflows")
+	defer conn.Close()
+
+	client := gogiv1.NewWorkflowServerClient(conn)
+	return client.CancelJob(ctx, req)
+}

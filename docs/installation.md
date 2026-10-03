@@ -86,7 +86,9 @@ Once it finishes, the gateway is reachable at ``http://localhost:8080`` (HTTP) a
 ``localhost:50051`` (gRPC).
 
 > **Note:** ``docker-compose.yml``'s ``llms`` service ships with a placeholder
-> ``ANTHROPIC_API_KEY``. Edit it there before you can make real Anthropic API calls.
+> ``ANTHROPIC_API_KEY`` and ``OPENAI_API_KEY``. Edit them there before you can make
+> real Anthropic or OpenAI API calls. Set ``OPENAI_BASE_URL`` to point the OpenAI
+> provider at an OpenAI-compatible endpoint.
 
 #### 2. Managing the deployment
 
@@ -159,9 +161,9 @@ kubectl apply -f k8/configmap.yaml
 kubectl apply -f k8/secrets.yaml
 ```
 
-Edit `k8/secrets.yaml` first if you need a real `ANTHROPIC_API_KEY` in place
-of the `REPLACE_ME` placeholder (the `llms` service will start either way,
-but its calls to Anthropic will fail without a real key).
+Edit `k8/secrets.yaml` first if you need a real `ANTHROPIC_API_KEY` or
+`OPENAI_API_KEY` in place of the `REPLACE_ME` placeholders (the `llms` service
+will start either way, but its calls to that provider will fail without a real key).
 
 #### 5. Bring up the stateful infrastructure
 
