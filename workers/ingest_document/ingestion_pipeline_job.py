@@ -29,6 +29,7 @@ from workers.worker_utils.embeddings.openai_embeddings import OpenAIEmbeddings
 from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
+from workers.ingest_document.search_request import DocumentSearchRequest
 
 
 PARSERS = {
@@ -113,6 +114,54 @@ async def ingest_document(req):
 
     logger.debug(f"Finished job {request.job_id}")
     return "done"
+
+
+def _build_where_clause(metadata_filter, document_ids):
+    conditions = [{key: value} for key, value in (metadata_filter or {}).items()]
+    if document_ids:
+        conditions.append({"document_id": {"$in": document_ids}})
+
+    if not conditions:
+        return None
+    if len(conditions) == 1:
+        return conditions[0]
+    return {"$and": conditions}
+
+
+@activity.defn(name="search_document")
+async def search_document(req):
+
+    request = DocumentSearchRequest(**req)
+    logger.debug(f"Searching index {request.index_name} for: {request.query!r}")
+
+    try:
+        query_embedding = embeddings_router.embed_text(
+            text=request.query, model=request.embeddings_model, client=request.embeddings_client
+        )
+        results = vector_storage_router.search(
+            index_name=request.index_name,
+            query_embedding=query_embedding.embeddings,
+            top_k=request.top_k,
+            metadata_filters=_build_where_clause(request.metadata_filter, request.document_ids),
+        )
+    except AuthenticationError as e:
+        error_message = f"Embeddings provider rejected the API key: {e}"
+        logger.error(f"Search of {request.index_name} failed (non-retryable): {error_message}")
+        raise ApplicationError(error_message, type="AuthenticationError", non_retryable=True) from e
+
+    return {
+        "chunks": [
+            {
+                "chunk_id": r.chunk_id,
+                "document_id": r.document_id,
+                "index_name": request.index_name,
+                "content": r.text,
+                "score": r.score,
+                "metadata": r.metadata,
+            }
+            for r in results
+        ]
+    }
 
 
 

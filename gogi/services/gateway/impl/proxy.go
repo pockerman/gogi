@@ -162,6 +162,17 @@ func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req 
 	return client.GetDocumentIngestJob(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardSearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gogiv1.NewDocumentServerClient(conn)
+	return client.SearchDocuments(ctx, req)
+}
+
 //======= Indexes ==========
 
 func (p *GenericGRPCProxy) ForwardCreateIndex(
