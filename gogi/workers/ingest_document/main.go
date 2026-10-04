@@ -24,8 +24,13 @@ func main() {
 	}
 	defer c.Close()
 
-	// Create Worker on the GO queue
-	w := worker.New(c, WORK_QUEUE, worker.Options{})
+	// Create Worker on the GO queue. This worker only hosts the workflow definition; the
+	// actual "ingest_document" activity runs on the Python worker polling the same queue.
+	// LocalActivityWorkerOnly stops this worker from also polling for (and erroneously
+	// claiming, since it has none registered) remote activity tasks meant for Python.
+	w := worker.New(c, WORK_QUEUE, worker.Options{
+		LocalActivityWorkerOnly: true,
+	})
 
 	// Register the workflow here
 	w.RegisterWorkflow(workflows.IngestDocumentWorkflow)
