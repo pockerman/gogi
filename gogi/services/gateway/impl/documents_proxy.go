@@ -34,3 +34,7 @@ func (p *DocumentsProxy) IngestDocument(ctx context.Context,
 func (p *DocumentsProxy) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 	return p.proxy.ForwardGetDocumentIngestJob(ctx, req)
 }
+
+func (p *DocumentsProxy) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
+	return p.proxy.ForwardSearchDocuments(ctx, req)
+}

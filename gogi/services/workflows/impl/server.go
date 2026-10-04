@@ -2,12 +2,30 @@ package impl
 
 import (
 	"context"
+	"errors"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
+	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
+
+func nilIfEmpty(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func derefOr(s *string, fallback string) string {
+	if s == nil {
+		return fallback
+	}
+	return *s
+}
 
 // WorkflowServer implements the WorkflowServer service.
 // The server provides the following endpoints:
@@ -51,9 +69,41 @@ func NewWorkflowServer(dbClient *pgxpool.Pool) *WorkflowServer {
 
 func (s *WorkflowServer) RegisterWorkflow(ctx context.Context, req *gogiv1.RegisterWorkflowRequest) (*gogiv1.RegisterWorkflowResponse, error) {
 
+	spec := req.GetSpec()
+
+	// Registering is idempotent by name: re-registering an already-known workflow (e.g. a
+	// client that registers it on every startup) updates it in place instead of erroring on
+	// the name's unique constraint.
+	existing, err := s.gogiWorkflowsRepo.GetWorkflowByName(ctx, spec.GetName())
+	if err != nil && !errors.Is(err, utils.ErrJobNotFound) {
+		return nil, status.Errorf(codes.Internal, "failed to look up workflow: %v", err)
+	}
+
+	var w *postgres.GogiWorkflow
+	if existing != nil {
+		existing.ApiPath = spec.GetApiPath()
+		existing.ContainerImage = spec.GetContainerImage()
+		existing.ResponseMode = spec.GetResponseMode()
+		w, err = s.gogiWorkflowsRepo.UpdateWorkflow(ctx, existing)
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to update workflow: %v", err)
+		}
+	} else {
+		w, err = s.gogiWorkflowsRepo.RegisterWorkflow(ctx, &postgres.GogiWorkflow{
+			Name:           spec.GetName(),
+			ApiPath:        spec.GetApiPath(),
+			ContainerImage: spec.GetContainerImage(),
+			ResponseMode:   spec.GetResponseMode(),
+			Version:        spec.GetVersion(),
+		})
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to register workflow: %v", err)
+		}
+	}
+
 	return &gogiv1.RegisterWorkflowResponse{
-		WorkflowId: utils.NewUUIDString(),
-		Version:    req.GetSpec().GetVersion(),
+		WorkflowId: w.ID,
+		Version:    w.Version,
 	}, nil
 }
 
@@ -153,29 +203,50 @@ func (s *WorkflowServer) ListRoutes(ctx context.Context, req *gogiv1.ListRoutesR
 
 func (s *WorkflowServer) CreateJob(ctx context.Context, req *gogiv1.CreateJobRequest) (*gogiv1.CreateJobResponse, error) {
 
+	job, err := s.gogiWorkflowsRepo.CreateJob(ctx, nilIfEmpty(req.GetWorkflowId()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create job: %v", err)
+	}
+
 	return &gogiv1.CreateJobResponse{
-		JobId: utils.NewUUIDString(),
+		JobId: job.ID,
 	}, nil
 }
 
 func (s *WorkflowServer) GetJobStatus(ctx context.Context, req *gogiv1.GetJobStatusRequest) (*gogiv1.GetJobStatusResponse, error) {
 
+	job, err := s.gogiWorkflowsRepo.GetJobByID(ctx, req.GetJobId())
+	if err != nil {
+		return nil, status.Errorf(codes.NotFound, "job not found: %v", err)
+	}
+
 	return &gogiv1.GetJobStatusResponse{
 		Job: &gogiv1.WorkflowJob{
-			JobId:  req.GetJobId(),
-			Status: "pending",
+			JobId:          job.ID,
+			WorkflowId:     derefOr(job.WorkflowID, ""),
+			Status:         strings.ToUpper(job.Status),
+			ResultJson:     derefOr(job.ResultJson, ""),
+			Error:          derefOr(job.ErrorMessage, ""),
+			CheckpointJson: derefOr(job.CheckpointJson, ""),
+			CreatedAt:      job.CreatedAt.UnixMilli(),
+			UpdatedAt:      job.UpdatedAt.UnixMilli(),
 		},
 	}, nil
 }
 
 func (s *WorkflowServer) UpdateJobProgress(ctx context.Context, req *gogiv1.UpdateJobProgressRequest) (*gogiv1.UpdateJobProgressResponse, error) {
-
+	// progress_message is a free-form human-readable string; gogi_workflow_jobs only
+	// tracks a numeric percentage, so there is nowhere to persist it yet.
 	return &gogiv1.UpdateJobProgressResponse{
 		Success: true,
 	}, nil
 }
 
 func (s *WorkflowServer) SaveJobCheckpoint(ctx context.Context, req *gogiv1.SaveJobCheckpointRequest) (*gogiv1.SaveJobCheckpointResponse, error) {
+
+	if err := s.gogiWorkflowsRepo.SaveJobCheckpoint(ctx, req.GetJobId(), req.GetCheckpointJson()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to save checkpoint: %v", err)
+	}
 
 	return &gogiv1.SaveJobCheckpointResponse{
 		Success: true,
@@ -184,6 +255,10 @@ func (s *WorkflowServer) SaveJobCheckpoint(ctx context.Context, req *gogiv1.Save
 
 func (s *WorkflowServer) CompleteJob(ctx context.Context, req *gogiv1.CompleteJobRequest) (*gogiv1.CompleteJobResponse, error) {
 
+	if err := s.gogiWorkflowsRepo.CompleteJob(ctx, req.GetJobId(), req.GetResultJson()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to complete job: %v", err)
+	}
+
 	return &gogiv1.CompleteJobResponse{
 		Success: true,
 	}, nil
@@ -191,12 +266,20 @@ func (s *WorkflowServer) CompleteJob(ctx context.Context, req *gogiv1.CompleteJo
 
 func (s *WorkflowServer) FailJob(ctx context.Context, req *gogiv1.FailJobRequest) (*gogiv1.FailJobResponse, error) {
 
+	if err := s.gogiWorkflowsRepo.FailJob(ctx, req.GetJobId(), req.GetError()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to fail job: %v", err)
+	}
+
 	return &gogiv1.FailJobResponse{
 		Success: true,
 	}, nil
 }
 
 func (s *WorkflowServer) CancelJob(ctx context.Context, req *gogiv1.CancelJobRequest) (*gogiv1.CancelJobResponse, error) {
+
+	if err := s.gogiWorkflowsRepo.CancelJob(ctx, req.GetJobId()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to cancel job: %v", err)
+	}
 
 	return &gogiv1.CancelJobResponse{
 		Success: true,

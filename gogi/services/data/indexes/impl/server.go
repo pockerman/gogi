@@ -2,12 +2,14 @@ package impl
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	gogiv1 "gogi/gogi/gogi/v1"
 
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
+	"gogi/gogi/utils"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,17 +41,29 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 
 	log.Infof("Creating index %s for owner %s", indexName, owner)
 
-	newUUID := uuid.New().String()
-	index := postgres.GogiIndex{Name: indexName, Owner: owner, Id: newUUID}
-	s.gogiIndexRepo.Create(ctx, index)
+	// Idempotent by name: if the index metadata already exists (e.g. the client calls this
+	// every run), reuse it instead of erroring on the name's unique constraint. Always
+	// (re)ensure the vector store collection regardless, since it can go missing independently
+	// of the Postgres row (e.g. the vector store lost data on its own).
+	index, err := s.gogiIndexRepo.GetIndexByName(indexName)
+	if err != nil {
+		if !errors.Is(err, utils.ErrJobNotFound) {
+			return nil, status.Errorf(codes.Internal, "failed to look up index: %v", err)
+		}
+		index = postgres.GogiIndex{Name: indexName, Owner: owner, Id: uuid.New().String()}
+		if err := s.gogiIndexRepo.Create(ctx, index); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
+		}
+	}
 
-	// vector storage create index
-	s.chromaDBClient.CreateCollection(indexName)
+	if err := s.chromaDBClient.CreateCollection(indexName); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create vector store collection: %v", err)
+	}
 
 	return &gogiv1.IndexResponse{
 		IndexName:     indexName,
-		Owner:         owner,
-		Id:            newUUID,
+		Owner:         index.Owner,
+		Id:            index.Id,
 		CreatedAt:     time.Now().Format(time.RFC3339),
 		LastUpdatedAt: time.Now().Format(time.RFC3339),
 	}, nil

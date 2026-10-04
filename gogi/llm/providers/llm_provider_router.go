@@ -21,7 +21,8 @@ func NewLLMProviderRouter(providers map[string]ModelProvider) *LLMProviderRouter
 }
 
 func fetchLLMModelConfigFromRequest(req *gogiv1.LLMRunRequest) LLM.LLMModelConfig {
-	return LLM.LLMModelConfig{ModelName: req.Config.Model, MaxTokens: int(req.Config.MaxTokens)}
+	return LLM.LLMModelConfig{ModelName: req.Config.Model, MaxTokens: int(req.Config.MaxTokens),
+		Temperature: req.Config.Temperature, TopP: req.Config.TopP}
 }
 
 func (p *LLMProviderRouter) chechProvider(req *gogiv1.LLMRunRequest) (ModelProvider, error) {
@@ -68,6 +69,5 @@ func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
 		return err
 	}
 
-	provider.RunStream(convertLLMMessages(req.Messages), fetchLLMModelConfigFromRequest(req), stream)
-	return nil
+	return provider.RunStream(convertLLMMessages(req.Messages), fetchLLMModelConfigFromRequest(req), stream)
 }

@@ -4,7 +4,7 @@ from temporalio.worker import Worker
 
 import asyncio
 
-from workers.ingest_document.ingestion_pipeline_job import ingest_document
+from workers.ingest_document.ingestion_pipeline_job import ingest_document, search_document
 
 
 
@@ -19,7 +19,7 @@ async def main():
     worker = Worker(
         client,
         task_queue=TASK_QUEUE,
-        activities=[ingest_document],
+        activities=[ingest_document, search_document],
     )
 
     print("Starting Python temporal worker...")

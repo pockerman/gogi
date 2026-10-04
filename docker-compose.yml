@@ -40,18 +40,19 @@ services:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
   minio:
-    image: quay.io/minio/minio:latest
+    # quay.io/minio/aistor/minio is MinIO's licensed "AIStor" edition and refuses all
+    # bucket/object operations without a paid license ("Access Denied. No license is
+    # installed."), even though health checks pass. bitnamilegacy/minio is a free,
+    # unmodified community MinIO build with no such restriction.
+    image: bitnamilegacy/minio:latest
     container_name: gogi-minio
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
-      - MINIO_REGION=us-east-1
-      - MINIO_PORT=9000
     restart: unless-stopped
     ports:
       - 9001:9001
       - 9000:9000
-    command: [ "server", "/data", "--console-address", ":9001" ]
   gateway:
     build:
       context: .
@@ -127,6 +128,7 @@ services:
       - GOGI_VECTOR_DB_PORT=8000
       - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
+      - OPENAI_API_KEY=1234569878
     depends_on:
       - postgres
       - chromadb
@@ -217,6 +219,7 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
+      - OPENAI_API_KEY=1234569878
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
