@@ -88,7 +88,8 @@ Once it finishes, the gateway is reachable at ``http://localhost:8080`` (HTTP) a
 > **Note:** ``docker-compose.yml``'s ``llms`` service ships with a placeholder
 > ``ANTHROPIC_API_KEY`` and ``OPENAI_API_KEY``. Edit them there before you can make
 > real Anthropic or OpenAI API calls. Set ``OPENAI_BASE_URL`` to point the OpenAI
-> provider at an OpenAI-compatible endpoint.
+> provider at an OpenAI-compatible endpoint; like in the OpenAI SDKs, the URL includes
+> the API version, e.g. ``https://api.openai.com/v1``.
 
 #### 2. Managing the deployment
 
@@ -171,7 +172,11 @@ will start either way, but its calls to that provider will fail without a real k
 kubectl apply -f k8/postgresql/
 kubectl apply -f k8/chromadb/
 kubectl apply -f k8/minio/
+kubectl apply -f k8/vault/
 ```
+
+`k8/vault/` runs a HashiCorp Vault dev server, the credential store of the `llms` service
+in development (see [Credentials for registered models](#credentials-for-registered-models)).
 
 #### 6. Run the database migrations
 
@@ -246,9 +251,63 @@ The migrations create the following tables:
 | 000005 | `gogi_prompts` |
 | 000006 | `gogi_tools`, `gogi_tool_tasks` |
 | 000007 | `gogi_workflows`, `gogi_workflow_deployments`, `gogi_routes`, `gogi_workflow_jobs` |
+| 000008 | `gogi_registered_llms` |
+
+## Credentials for registered models
+
+A self-hosted model registered with the `llms` service (`RegisterLLM`) can reference a
+credential by name with `credential_ref`, e.g. `ml-inference-prod`. The secret itself lives in
+a secrets manager; the service reads it for every request to the model and sends it as the
+API key, so the secret never appears in registrations, logs or responses, and a rotated secret
+is used without re-registering the model.
+
+The `llms` service selects the credential store with `GOGI_CREDENTIAL_STORE`:
+
+| Value            | Store                | Settings                                                              |
+|------------------|----------------------|-----------------------------------------------------------------------|
+| `none` (default) | No credential store  | Registrations with a `credential_ref` are rejected                   |
+| `aws`            | AWS Secrets Manager  | The standard AWS variables: `AWS_REGION`, credentials, and `AWS_ENDPOINT_URL` for LocalStack |
+| `vault`          | HashiCorp Vault (KV v2) | `VAULT_ADDR`, `VAULT_TOKEN`, `GOGI_VAULT_KV_MOUNT` (default `secret`) |
+
+A credential named `<name>` is the secret `gogi/credentials/<name>`: in AWS Secrets Manager its
+secret string is the credential; in Vault the credential is the `value` key of the secret.
+`GOGI_CREDENTIAL_PREFIX` changes the `gogi/credentials/` prefix. The service caches credentials
+for `GOGI_CREDENTIAL_CACHE_TTL` (default `1m`), so a secret rotated in the secrets manager is
+used within that time.
+
+#### Local development
+
+Docker Compose and the Kubernetes manifests run a Vault dev server, which the `llms` service
+uses by default. The dev server keeps secrets in memory (they are lost on restart) and uses the
+fixed root token `gogi-dev-root-token`: never use it outside development. Store a credential with:
+
+```
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=gogi-dev-root-token gogi-vault \
+  vault kv put secret/gogi/credentials/ml-inference-prod value=<the-api-key>
+```
+
+To use AWS Secrets Manager instead, start [LocalStack](https://www.localstack.cloud/), which
+emulates it, with the `aws` profile, and store the credential there:
+
+```
+GOGI_CREDENTIAL_STORE=aws docker compose --profile aws up -d
+docker exec gogi-localstack awslocal secretsmanager create-secret \
+  --name gogi/credentials/ml-inference-prod --secret-string <the-api-key>
+```
+
+Rotate a credential with `vault kv put` (Vault) or `awslocal secretsmanager put-secret-value`
+(LocalStack) on the same name.
 
 ## Run the tests
 
 ```
 go test ./...
 ```
+
+Some tests run against real services and are skipped unless these variables are set:
+
+| Variable                     | Tests                                     | Example                                        |
+|------------------------------|-------------------------------------------|------------------------------------------------|
+| `GOGI_TEST_POSTGRES_DSN`     | Registered models repository (empties `gogi_registered_llms`; use a test database) | `postgres://postgres:test@localhost:5432/gogi?sslmode=disable` |
+| `GOGI_TEST_AWS_ENDPOINT_URL` | AWS Secrets Manager credential store      | `http://localhost:4566` (LocalStack)           |
+| `GOGI_TEST_VAULT_ADDR`, `GOGI_TEST_VAULT_TOKEN` | HashiCorp Vault credential store | `http://localhost:8200`, `root` (`vault server -dev -dev-root-token-id=root`) |

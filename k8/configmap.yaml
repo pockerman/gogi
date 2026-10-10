@@ -24,3 +24,9 @@ data:
   GOGI_LLM_SESSIONS_ADDR: llm-sessions:50059
   GOGI_LLM_TOOLS_SERVICE_ADDR: llm-tools:50060
   GOGI_WORKFLOW_SERVICE_ADDR: workflows:50053
+
+  # Credential store of registered models, read by the llms service. The Vault
+  # dev server in k8/vault is for local development only; VAULT_TOKEN lives in
+  # the gogi-secrets Secret
+  GOGI_CREDENTIAL_STORE: vault
+  VAULT_ADDR: http://vault:8200

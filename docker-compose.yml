@@ -114,6 +114,32 @@ services:
     depends_on:
       - postgres
       - chromadb
+  # HashiCorp Vault dev server: the default credential store for local development.
+  # Dev mode keeps everything in memory, unsealed, with a fixed root token:
+  # never use it outside development
+  vault:
+    image: hashicorp/vault:1.20
+    container_name: gogi-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=gogi-dev-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    ports:
+      - "8200:8200"
+
+  # LocalStack emulates AWS Secrets Manager. Start it with
+  # GOGI_CREDENTIAL_STORE=aws docker compose --profile aws up
+  localstack:
+    image: localstack/localstack:4
+    container_name: gogi-localstack
+    profiles:
+      - aws
+    environment:
+      - SERVICES=secretsmanager
+    ports:
+      - "4566:4566"
+
   llms:
     build:
       context: .
@@ -129,9 +155,18 @@ services:
       - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
       - OPENAI_API_KEY=1234569878
+      # credential store of registered models: vault (default) or aws (LocalStack)
+      - GOGI_CREDENTIAL_STORE=${GOGI_CREDENTIAL_STORE:-vault}
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=gogi-dev-root-token
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     depends_on:
       - postgres
       - chromadb
+      - vault
   prompts:
     build:
       context: .
