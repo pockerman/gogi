@@ -104,6 +104,69 @@ func TestOpenAIPrepareHeaders(t *testing.T) {
 	}
 }
 
+func TestOpenAIPrepareHeadersWithoutKey(t *testing.T) {
+	provider := NewOpenAICompatibleLLMModelProvider("ollama", "", "http://localhost:11434/v1/")
+
+	req, _ := http.NewRequest("POST", "/", nil)
+	provider.prepareHeaders(req)
+
+	if req.Header.Get("Authorization") != "" {
+		t.Errorf("no Authorization header expected without an API key")
+	}
+	if provider.baseURL != "http://localhost:11434/v1" || provider.Name() != "ollama" {
+		t.Errorf("wrong provider %+v", provider)
+	}
+}
+
+func TestOpenAIAPIKeySource(t *testing.T) {
+	provider := NewOpenAICompatibleLLMModelProvider("custom", "", "http://localhost:8000/v1")
+
+	keys := []string{"key-1", "key-2"}
+	calls := 0
+	provider.SetAPIKeySource(func() (string, error) {
+		key := keys[calls]
+		calls++
+		return key, nil
+	})
+
+	// the key is fetched for every request, so a rotated key is used at once
+	for _, expected := range keys {
+		req, _ := http.NewRequest("POST", "/", nil)
+		if err := provider.prepareHeaders(req); err != nil {
+			t.Fatal(err)
+		}
+		if req.Header.Get("Authorization") != "Bearer "+expected {
+			t.Errorf("expected key %s, got %q", expected, req.Header.Get("Authorization"))
+		}
+	}
+
+	provider.SetAPIKeySource(func() (string, error) { return "", fmt.Errorf("credential not found") })
+	req, _ := http.NewRequest("POST", "/", nil)
+	if err := provider.prepareHeaders(req); err == nil || !strings.Contains(err.Error(), "credential not found") {
+		t.Errorf("expected the credential error, got %v", err)
+	}
+}
+
+func TestOpenAICompatibleRun(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Errorf("wrong path %s", r.URL.Path)
+		}
+		fmt.Fprint(w, `{"model": "mistral", "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
+			"usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	provider := NewOpenAICompatibleLLMModelProvider("ollama", "", server.URL+"/v1")
+	response, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "mistral"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Provider != "ollama" || response.Content != "Hi" {
+		t.Errorf("wrong response %+v", response)
+	}
+}
+
 func TestOpenAIRun(t *testing.T) {
 	provider := newTestOpenAIProvider(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != openAIChatCompletionsPath {

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"gogi/gogi/credentials"
 	LLM_PROVIDERS "gogi/gogi/llm/providers"
 	"gogi/gogi/services/llms/impl"
 	"gogi/gogi/storage/postgres"
@@ -72,8 +74,18 @@ func main() {
 
 	modelRouter := buildModelRouterProvider()
 
+	// the credentials of registered models, e.g. in AWS Secrets Manager or HashiCorp Vault
+	credentialStore, err := credentials.NewCredentialStoreFromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("failed to create the credential store: %v", err)
+	}
+	if credentialStore == nil {
+		log.Infof("No credential store configured; registered models cannot reference credentials")
+	}
+
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter))
+	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter,
+		credentialStore))
 
 	// add the health server
 	healthServer := health.NewServer()

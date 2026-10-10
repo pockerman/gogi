@@ -94,6 +94,27 @@ type GogiTool struct {
 	UpdatedAt    time.Time
 }
 
+// GogiRegisteredLLM is a model registered with the platform, served
+// at Endpoint by a model server that AdapterType knows how to talk to
+type GogiRegisteredLLM struct {
+	ID                string
+	Name              string
+	Provider          string
+	ContextWindow     int32
+	SupportsVision    bool
+	SupportsTools     bool
+	SupportsStreaming bool
+	SupportsJSONMode  bool
+	Endpoint          string
+	HealthCheck       string
+	AdapterType       string
+	CredentialRef     string
+	Status            string
+	LastCheckedAt     *time.Time
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 type GogiToolTask struct {
 	ID         string
 	ToolName   string

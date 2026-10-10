@@ -1,0 +1,42 @@
+# HashiCorp Vault dev server: the credential store for local development.
+# Dev mode keeps everything in memory, unsealed, with a fixed root token,
+# so secrets are lost when the pod restarts. Never use it outside development
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vault
+  namespace: gogi
+
+spec:
+  replicas: 1
+
+  selector:
+    matchLabels:
+      app: vault
+
+  template:
+    metadata:
+      labels:
+        app: vault
+
+    spec:
+      containers:
+      - name: vault
+        image: hashicorp/vault:1.20
+        ports:
+        - containerPort: 8200
+        securityContext:
+          capabilities:
+            add: ["IPC_LOCK"]
+        env:
+        - name: VAULT_DEV_LISTEN_ADDRESS
+          value: 0.0.0.0:8200
+        - name: VAULT_DEV_ROOT_TOKEN_ID
+          valueFrom:
+            secretKeyRef:
+              name: gogi-secrets
+              key: VAULT_TOKEN
+        readinessProbe:
+          httpGet:
+            path: /v1/sys/health
+            port: 8200

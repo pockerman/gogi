@@ -100,6 +100,7 @@ echo "==> 5. Bringing up the stateful infrastructure"
 kubectl apply -f k8/postgresql/
 kubectl apply -f k8/chromadb/
 kubectl apply -f k8/minio/
+kubectl apply -f k8/vault/
 
 echo "    waiting for postgres to become ready..."
 kubectl wait --for=condition=Ready pod -l app=postgres -n "$NAMESPACE" --timeout=180s

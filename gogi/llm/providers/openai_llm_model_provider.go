@@ -18,26 +18,40 @@ import (
 )
 
 const (
-	openAIBaseURL             = "https://api.openai.com"
-	openAIChatCompletionsPath = "/v1/chat/completions"
+	// the base URL includes the API version, as in the OpenAI SDKs
+	openAIBaseURL             = "https://api.openai.com/v1"
+	openAIChatCompletionsPath = "/chat/completions"
 	openAIRequestTimeout      = 5 * time.Minute
 )
 
-// OpenAILLMModelProvider provider for
-// OpenAI's LLMs via the Chat Completions API
+// OpenAILLMModelProvider provider for OpenAI's LLMs via the Chat Completions
+// API, and for any server with an OpenAI-compatible API, e.g. vLLM, TGI or Ollama
 type OpenAILLMModelProvider struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	name       string
+	apiKey       string
+	apiKeySource APIKeySource
+	baseURL      string
+	httpClient   *http.Client
+	name         string
 }
 
+// APIKeySource returns the API key to send with a request. It is called for every
+// request, so a key rotated in a credential store is used without a restart
+type APIKeySource func() (string, error)
+
 func NewOpenAILLMModelProvider(apiKey string) *OpenAILLMModelProvider {
+	return NewOpenAICompatibleLLMModelProvider("openai", apiKey, openAIBaseURL)
+}
+
+// NewOpenAICompatibleLLMModelProvider creates a provider for the OpenAI-compatible
+// API at baseURL, which includes the API version, e.g. http://localhost:8000/v1.
+// name is the provider name reported in the responses. apiKey may be empty for
+// servers that do not require authentication
+func NewOpenAICompatibleLLMModelProvider(name, apiKey, baseURL string) *OpenAILLMModelProvider {
 	return &OpenAILLMModelProvider{
 		apiKey:     apiKey,
-		baseURL:    openAIBaseURL,
+		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{Timeout: openAIRequestTimeout},
-		name:       "openai",
+		name:       name,
 	}
 }
 
@@ -49,8 +63,14 @@ func (provider *OpenAILLMModelProvider) SetApiKey(apiKey string) {
 	provider.apiKey = apiKey
 }
 
+// SetAPIKeySource makes the provider get the API key from source for every
+// request, instead of using a fixed key
+func (provider *OpenAILLMModelProvider) SetAPIKeySource(source APIKeySource) {
+	provider.apiKeySource = source
+}
+
 // SetBaseURL overrides the API base URL, e.g. for Azure/OpenAI-compatible
-// gateways or tests
+// gateways or tests. The base URL includes the API version, e.g. https://api.openai.com/v1
 func (provider *OpenAILLMModelProvider) SetBaseURL(baseURL string) {
 	provider.baseURL = strings.TrimRight(baseURL, "/")
 }
@@ -264,7 +284,9 @@ func (provider *OpenAILLMModelProvider) doRequest(body []byte) (*http.Response, 
 		return nil, fmt.Errorf("openai: failed to create request: %w", err)
 	}
 
-	provider.prepareHeaders(request)
+	if err := provider.prepareHeaders(request); err != nil {
+		return nil, err
+	}
 
 	resp, err := provider.httpClient.Do(request)
 	if err != nil {
@@ -292,10 +314,22 @@ func parseOpenAIError(resp *http.Response) error {
 	return fmt.Errorf("openai: API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
 }
 
-func (provider *OpenAILLMModelProvider) prepareHeaders(request *http.Request) {
+func (provider *OpenAILLMModelProvider) prepareHeaders(request *http.Request) error {
 
 	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+provider.apiKey)
+
+	apiKey := provider.apiKey
+	if provider.apiKeySource != nil {
+		var err error
+		if apiKey, err = provider.apiKeySource(); err != nil {
+			return fmt.Errorf("openai: failed to get the API key: %w", err)
+		}
+	}
+
+	if apiKey != "" {
+		request.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+	return nil
 }
 
 func (provider *OpenAILLMModelProvider) preparePayload(messages []llm.LLMMessage,
