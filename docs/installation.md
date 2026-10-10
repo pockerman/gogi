@@ -259,7 +259,8 @@ A self-hosted model registered with the `llms` service (`RegisterLLM`) can refer
 credential by name with `credential_ref`, e.g. `ml-inference-prod`. The secret itself lives in
 a secrets manager; the service reads it for every request to the model and sends it as the
 API key, so the secret never appears in registrations, logs or responses, and a rotated secret
-is used without re-registering the model.
+is used without re-registering the model. This section covers the setup; see
+[credentials](credentials.md) for the design, production settings and troubleshooting.
 
 The `llms` service selects the credential store with `GOGI_CREDENTIAL_STORE`:
 

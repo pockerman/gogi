@@ -21,6 +21,12 @@ gogi evolves around a number of services.
 
 See the general instructions in <a href="docs/installation.md">installation</a>
 
+## Credentials
+
+gogi keeps the API keys of registered models in a secrets manager (AWS Secrets Manager or
+HashiCorp Vault) and registrations only reference them by name. See <a href="docs/credentials.md">credentials</a>
+for how to configure it, including locally.
+
 ## SDKs
 
 Unless you do some sort of development on the platform itself, you will need one of the supported SDKs.
