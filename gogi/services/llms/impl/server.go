@@ -66,20 +66,6 @@ type RegisteredLLMStore interface {
 }
 
 func toGRPCLLMRunResponse(llmResponse LLM.LLModelResponse) *gogiv1.LLMRunResponse {
-
-	toolCalls := make([]*gogiv1.ToolCall, 0, len(llmResponse.ToolCalls))
-
-	for _, tc := range llmResponse.ToolCalls {
-		toolCalls = append(toolCalls, &gogiv1.ToolCall{
-			Id:   tc.Id,
-			Type: tc.ToolType,
-			Function: &gogiv1.ToolCallFunction{
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			},
-		})
-	}
-
 	return &gogiv1.LLMRunResponse{
 		Content:      llmResponse.Content,
 		Model:        llmResponse.Model,
@@ -90,7 +76,7 @@ func toGRPCLLMRunResponse(llmResponse LLM.LLModelResponse) *gogiv1.LLMRunRespons
 			CompletionTokens: int32(llmResponse.TokenUsage.CompletionTokens),
 			TotalTokens:      int32(llmResponse.TokenUsage.TotalTokens),
 		},
-		ToolCalls: toolCalls,
+		ToolCalls: providers.ToGRPCToolCalls(llmResponse.ToolCalls),
 	}
 }
 
@@ -110,7 +96,8 @@ func toModelInfo(model *postgres.GogiRegisteredLLM) *gogiv1.ModelInfo {
 
 // runError maps a provider router error to a gRPC status error
 func runError(err error) error {
-	if errors.Is(err, providers.ErrUnknownProvider) || errors.Is(err, providers.ErrUnknownModel) {
+	if errors.Is(err, providers.ErrUnknownProvider) || errors.Is(err, providers.ErrUnknownModel) ||
+		errors.Is(err, providers.ErrInvalidRequest) {
 		return status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	if _, ok := status.FromError(err); ok {

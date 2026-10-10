@@ -135,6 +135,38 @@ A tool is imported as version `1.0.0`. Importing the server again changes nothin
 same; a tool whose definition changed on the server is registered as a new major version, so that applications
 pinned to the definition they approved do not get a different tool silently.
 
+## Tools for a model
+
+The model service (`llms`) gives tools to a model and returns the model's calls; the application runs them through
+the tool service and gives the results back to the model. An agent loop:
+
+1. Discover the tools and convert them into function definitions, e.g. with the Python SDK's `build_model_tools`.
+   Model providers do not accept dots in function names, so `healthcare.scheduling.book_appointment` is given to the
+   model as `healthcare__scheduling__book_appointment`
+2. `Run` with the conversation and the `tools`. If the model calls tools, `finish_reason` is `tool_calls` and
+   `tool_calls` has the calls: each has an `id`, and the function's `name` and `arguments` (a JSON object)
+3. Add the model's message to the conversation: an `assistant` message with the `tool_calls`
+4. Execute each call with `ExecuteTool`, and add its result to the conversation: a `tool` message whose
+   `tool_call_id` is the call's `id` and whose `content` is the result, or the error of a failed call
+5. `Run` again, until the model answers without calling tools
+
+The model service uses OpenAI's format for every provider (see the [overview](gogi_overview.md)) and translates it:
+
+| Platform format                               | OpenAI and compatible servers   | Anthropic                                                |
+|-----------------------------------------------|---------------------------------|----------------------------------------------------------|
+| `tools` (`type` `function`, `parameters_json`)| `tools[].function.parameters`   | `tools[].input_schema`                                   |
+| Assistant message with `tool_calls`           | `tool_calls`, `content` null if empty | `tool_use` blocks                                  |
+| `tool` message (`tool_call_id`, `content`)    | `tool` message                  | `tool_result` blocks of one user message                 |
+| `finish_reason`                               | as returned                     | `tool_use` → `tool_calls`, `end_turn` → `stop`, `max_tokens` → `length`, `refusal` → `content_filter` |
+
+A tool's `parameters_json` is the JSON Schema of an object: an empty one means no parameters, and a schema without a
+`type` is given the type `object`. Function names are 1 to 64 letters, digits, `_` and `-`, unique in the request.
+A request that breaks these rules, has a message of another role than `system`, `user`, `assistant` and `tool`, or a
+`tool` message without a `tool_call_id`, fails with `INVALID_ARGUMENT`.
+
+`RunStream` streams the text as it is generated; the tool calls arrive complete, with the finish reason, in the last
+chunk's `tool_calls`.
+
 ## Storage
 
 The registry is the `gogi_tools` table, one row per tool version, unique on `(name, version)`; background calls are
@@ -146,5 +178,5 @@ in `gogi_tool_tasks`. Migration `000009` extends the tables of migration `000006
 - A background call runs in the replica that started it: if the replica stops, the task stays `running`.
 - Applications are not authenticated yet, so discovery does not filter tools by the caller's permitted namespaces,
   and `required_permissions` is stored but not enforced.
-- The model service does not yet send tool definitions to the model providers, so tools discovered for a model
-  (e.g. with the Python SDK's `build_model_tools`) cannot yet be passed to a model through the platform.
+- The application runs the agent loop: the model service does not execute the tools a model calls itself.
+- `tool_choice` (forcing or forbidding tool calls) is not part of the contract yet; the provider decides.

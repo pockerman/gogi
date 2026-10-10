@@ -78,12 +78,34 @@ func (provider *OpenAILLMModelProvider) SetBaseURL(baseURL string) {
 // openAIChatRequest is the Chat Completions request body
 type openAIChatRequest struct {
 	Model               string                   `json:"model"`
-	Messages            []llm.LLMMessage         `json:"messages"`
+	Messages            []openAIMessage          `json:"messages"`
+	Tools               []openAITool             `json:"tools,omitempty"`
 	MaxCompletionTokens int                      `json:"max_completion_tokens,omitempty"`
 	Temperature         *float32                 `json:"temperature,omitempty"`
 	TopP                *float32                 `json:"top_p,omitempty"`
 	Stream              bool                     `json:"stream,omitempty"`
 	StreamOptions       *openAIChatStreamOptions `json:"stream_options,omitempty"`
+}
+
+// openAIMessage is a message of the conversation. The content of an assistant
+// message that only calls tools is null
+type openAIMessage struct {
+	Role       string           `json:"role"`
+	Content    *string          `json:"content"`
+	Name       string           `json:"name,omitempty"`
+	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallId string           `json:"tool_call_id,omitempty"`
+}
+
+type openAITool struct {
+	Type     string             `json:"type"`
+	Function openAIToolFunction `json:"function"`
+}
+
+type openAIToolFunction struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 type openAIChatStreamOptions struct {
@@ -97,12 +119,23 @@ type openAIUsage struct {
 }
 
 type openAIToolCall struct {
-	Id       string `json:"id"`
-	Type     string `json:"type"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-	} `json:"function"`
+	Id       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openAIToolCallFunction `json:"function"`
+}
+
+type openAIToolCallFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// openAIToolCallDelta is a part of a tool call in a streamed response: the first
+// part of a call has its id and name, and the parts of its arguments follow
+type openAIToolCallDelta struct {
+	Index    int                    `json:"index"`
+	Id       string                 `json:"id"`
+	Type     string                 `json:"type"`
+	Function openAIToolCallFunction `json:"function"`
 }
 
 // openAIChatResponse is the non-streaming Chat Completions response body
@@ -124,7 +157,8 @@ type openAIChatChunk struct {
 	Model   string `json:"model"`
 	Choices []struct {
 		Delta struct {
-			Content string `json:"content"`
+			Content   string                `json:"content"`
+			ToolCalls []openAIToolCallDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
 	} `json:"choices"`
@@ -173,7 +207,7 @@ func (provider *OpenAILLMModelProvider) Run(messages []llm.LLMMessage,
 	toolCalls := make([]llm.LLMToolCall, 0, len(choice.Message.ToolCalls))
 	for _, call := range choice.Message.ToolCalls {
 		toolCalls = append(toolCalls,
-			*llm.NewLLMToolCall(call.Id, call.Type, call.Function.Name, call.Function.Arguments))
+			*llm.NewLLMToolCall(call.Id, llm.ToolTypeFunction, call.Function.Name, call.Function.Arguments))
 	}
 
 	tokenUsage := llm.NewTokenUsage(result.Usage.PromptTokens,
@@ -212,6 +246,7 @@ func (provider *OpenAILLMModelProvider) RunStream(
 	model := config.ModelName
 	var finishReason *string
 	var usage *openAIUsage
+	toolCalls := newOpenAIToolCallAccumulator()
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
@@ -243,6 +278,7 @@ func (provider *OpenAILLMModelProvider) RunStream(
 			if choice.FinishReason != nil {
 				finishReason = choice.FinishReason
 			}
+			toolCalls.add(choice.Delta.ToolCalls)
 			if choice.Delta.Content == "" {
 				continue
 			}
@@ -262,6 +298,7 @@ func (provider *OpenAILLMModelProvider) RunStream(
 	final := &gogiv1.LLMStreamChunkResponse{
 		Model:        model,
 		FinishReason: finishReason,
+		ToolCalls:    ToGRPCToolCalls(toolCalls.toolCalls()),
 	}
 	if usage != nil {
 		final.Usage = &gogiv1.TokenUsage{
@@ -337,9 +374,20 @@ func (provider *OpenAILLMModelProvider) preparePayload(messages []llm.LLMMessage
 
 	payload := openAIChatRequest{
 		Model:               config.ModelName,
-		Messages:            messages,
+		Messages:            toOpenAIMessages(messages),
 		MaxCompletionTokens: config.MaxTokens,
 		Stream:              stream,
+	}
+
+	for _, tool := range config.Tools {
+		payload.Tools = append(payload.Tools, openAITool{
+			Type: llm.ToolTypeFunction,
+			Function: openAIToolFunction{
+				Name:        tool.Name,
+				Description: tool.Description,
+				Parameters:  tool.Parameters,
+			},
+		})
 	}
 
 	// zero values mean "not set"; let the API apply its defaults
@@ -354,6 +402,73 @@ func (provider *OpenAILLMModelProvider) preparePayload(messages []llm.LLMMessage
 	}
 
 	return json.Marshal(payload)
+}
+
+func toOpenAIMessages(messages []llm.LLMMessage) []openAIMessage {
+
+	converted := make([]openAIMessage, 0, len(messages))
+	for _, message := range messages {
+		content := message.Content
+		converted = append(converted, openAIMessage{
+			Role:       message.Role,
+			Content:    &content,
+			ToolCallId: message.ToolCallId,
+		})
+
+		last := &converted[len(converted)-1]
+		// the API does not take the name of a tool message
+		if message.Role != llm.RoleTool {
+			last.Name = message.Name
+		}
+		if message.Role == llm.RoleAssistant && len(message.ToolCalls) > 0 && message.Content == "" {
+			last.Content = nil
+		}
+		for _, call := range message.ToolCalls {
+			last.ToolCalls = append(last.ToolCalls, openAIToolCall{
+				Id:       call.Id,
+				Type:     llm.ToolTypeFunction,
+				Function: openAIToolCallFunction{Name: call.Function.Name, Arguments: call.Function.Arguments},
+			})
+		}
+	}
+	return converted
+}
+
+// openAIToolCallAccumulator puts together the tool calls of a streamed response
+type openAIToolCallAccumulator struct {
+	calls map[int]*llm.LLMToolCall
+	order []int
+}
+
+func newOpenAIToolCallAccumulator() *openAIToolCallAccumulator {
+	return &openAIToolCallAccumulator{calls: make(map[int]*llm.LLMToolCall)}
+}
+
+func (accumulator *openAIToolCallAccumulator) add(deltas []openAIToolCallDelta) {
+	for _, delta := range deltas {
+		call, ok := accumulator.calls[delta.Index]
+		if !ok {
+			call = llm.NewLLMToolCall("", llm.ToolTypeFunction, "", "")
+			accumulator.calls[delta.Index] = call
+			accumulator.order = append(accumulator.order, delta.Index)
+		}
+		if delta.Id != "" {
+			call.Id = delta.Id
+		}
+		if delta.Function.Name != "" {
+			call.Function.Name = delta.Function.Name
+		}
+		call.Function.Arguments += delta.Function.Arguments
+	}
+}
+
+// toolCalls returns the tool calls in the order the model made them
+func (accumulator *openAIToolCallAccumulator) toolCalls() []llm.LLMToolCall {
+	toolCalls := make([]llm.LLMToolCall, 0, len(accumulator.order))
+	for _, index := range accumulator.order {
+		toolCalls = append(toolCalls, *accumulator.calls[index])
+	}
+	return toolCalls
 }
 
 func (provider *OpenAILLMModelProvider) EstimateCost(tokens []string, model string) (float64, error) {
