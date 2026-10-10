@@ -78,20 +78,60 @@ type GogiPrompt struct {
 
 // Tools
 
+// GogiToolBehavior declares what a tool does, so the platform knows whether it can be
+// called freely, retried safely, or needs a human to confirm the call
+type GogiToolBehavior struct {
+	IsReadOnly           bool     `json:"is_read_only"`
+	IsIdempotent         bool     `json:"is_idempotent"`
+	RequiresConfirmation bool     `json:"requires_confirmation"`
+	TypicalLatencyMs     int32    `json:"typical_latency_ms"`
+	SideEffects          []string `json:"side_effects"`
+}
+
+// GogiToolRateLimits limits the calls to a tool; zero means no limit
+type GogiToolRateLimits struct {
+	RequestsPerMinute  int32 `json:"requests_per_minute"`
+	RequestsPerSession int32 `json:"requests_per_session"`
+	DailyLimit         int32 `json:"daily_limit"`
+}
+
+type GogiToolCost struct {
+	EstimatedCostUSD float32 `json:"estimated_cost_usd"`
+	BillingCategory  string  `json:"billing_category"`
+}
+
+// GogiToolExecutionLimits bounds a tool call; zero means the platform default
+type GogiToolExecutionLimits struct {
+	TimeoutSeconds     int32 `json:"timeout_seconds"`
+	MemoryLimitMB      int32 `json:"memory_limit_mb"`
+	CPULimitMillicores int32 `json:"cpu_limit_millicores"`
+	MaxResponseSizeKB  int32 `json:"max_response_size_kb"`
+	MaxRetries         int32 `json:"max_retries"`
+}
+
+// GogiTool is one version of a tool registered with the platform. A tool is called at
+// Endpoint, or through the MCP server at MCPServerURL, where it is named MCPToolName
 type GogiTool struct {
-	ID           string
-	Name         string
-	Version      string
-	Owner        string
-	Description  string
-	IsReadOnly   bool
-	IsIdempotent bool
-	Capabilities []string
-	Tags         []string
-	Endpoint     string
-	SchemaJson   string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
+	ID                  string
+	Name                string
+	Version             string
+	Owner               string
+	Description         string
+	ParametersJSON      string
+	ReturnsJSON         string
+	Behavior            GogiToolBehavior
+	RateLimits          GogiToolRateLimits
+	Cost                GogiToolCost
+	ExecutionLimits     GogiToolExecutionLimits
+	RequiredPermissions []string
+	Capabilities        []string
+	Tags                []string
+	Endpoint            string
+	CredentialRef       string
+	MCPServerURL        string
+	MCPToolName         string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 }
 
 // GogiRegisteredLLM is a model registered with the platform, served
@@ -115,14 +155,18 @@ type GogiRegisteredLLM struct {
 	UpdatedAt         time.Time
 }
 
+// GogiToolTask is an asynchronous tool call
 type GogiToolTask struct {
-	ID         string
-	ToolName   string
-	Status     string
-	InputJson  *string
-	ResultJson *string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	ID          string
+	ToolName    string
+	ToolVersion string
+	SessionID   string
+	Status      string
+	InputJson   *string
+	ResultJson  *string
+	Error       string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 // Workflows

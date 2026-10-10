@@ -252,6 +252,7 @@ The migrations create the following tables:
 | 000006 | `gogi_tools`, `gogi_tool_tasks` |
 | 000007 | `gogi_workflows`, `gogi_workflow_deployments`, `gogi_routes`, `gogi_workflow_jobs` |
 | 000008 | `gogi_registered_llms` |
+| 000009 | Extends `gogi_tools` and `gogi_tool_tasks` (see [tool service](tool_service.md)) |
 
 ## Credentials for registered models
 
@@ -309,6 +310,6 @@ Some tests run against real services and are skipped unless these variables are 
 
 | Variable                     | Tests                                     | Example                                        |
 |------------------------------|-------------------------------------------|------------------------------------------------|
-| `GOGI_TEST_POSTGRES_DSN`     | Registered models repository (empties `gogi_registered_llms`; use a test database) | `postgres://postgres:test@localhost:5432/gogi?sslmode=disable` |
+| `GOGI_TEST_POSTGRES_DSN`     | Registered models repository and tool service (empty `gogi_registered_llms`, `gogi_tools` and `gogi_tool_tasks`; use a test database) | `postgres://postgres:test@localhost:5432/gogi?sslmode=disable` |
 | `GOGI_TEST_AWS_ENDPOINT_URL` | AWS Secrets Manager credential store      | `http://localhost:4566` (LocalStack)           |
 | `GOGI_TEST_VAULT_ADDR`, `GOGI_TEST_VAULT_TOKEN` | HashiCorp Vault credential store | `http://localhost:8200`, `root` (`vault server -dev -dev-root-token-id=root`) |

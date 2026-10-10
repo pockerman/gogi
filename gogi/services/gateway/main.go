@@ -35,6 +35,9 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 
 	workflows_addr := utils.GetEnv("GOGI_WORKFLOW_SERVICE_ADDR", "workflows:50053")
 	registry.RegisterService("workflows", workflows_addr)
+
+	llm_tools_addr := utils.GetEnv("GOGI_LLM_TOOLS_SERVICE_ADDR", "llm-tools:50060")
+	registry.RegisterService("llm-tools", llm_tools_addr)
 }
 
 func main() {
