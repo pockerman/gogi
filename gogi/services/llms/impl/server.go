@@ -153,7 +153,7 @@ func (s *LLMModelServer) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLM
 		if req.FetchModels {
 			switch name {
 			case "anthropic":
-				p.Models = []string{"claude-sonnet-3.5", "claude-opus-3.5", "claude-sonnet-4.5"}
+				p.Models = []string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5", "claude-fable-5-1"}
 			case "openai":
 				p.Models = []string{"gpt-4o", "gpt-4o-mini", "gpt-4.1", "gpt-4.1-mini"}
 			}
