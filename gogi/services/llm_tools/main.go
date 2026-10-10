@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
+	"gogi/gogi/credentials"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/services/llm_tools/impl"
+	"gogi/gogi/tools"
 
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
@@ -41,8 +44,26 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	// the credentials of tools, e.g. in AWS Secrets Manager or HashiCorp Vault
+	credentialStore, err := credentials.NewCredentialStoreFromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("failed to create the credential store: %v", err)
+	}
+	if credentialStore == nil {
+		log.Infof("No credential store configured; tools cannot reference credentials")
+	}
+
+	breaker, err := tools.NewCircuitBreakerFromEnv()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+	executorConfig, err := tools.ExecutorConfigFromEnv()
+	if err != nil {
+		log.Fatalf("%v", err)
+	}
+
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterToolServerServer(grpcServer, impl.NewToolServer(pool))
+	gogiv1.RegisterToolServerServer(grpcServer, impl.NewToolServer(pool, credentialStore, breaker, executorConfig))
 
 	// add the health server
 	healthServer := health.NewServer()

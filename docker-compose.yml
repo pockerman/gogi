@@ -204,8 +204,21 @@ services:
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_LLM_TOOLS_PORT=:50060
+      # credential store of tools: vault (default) or aws (LocalStack)
+      - GOGI_CREDENTIAL_STORE=${GOGI_CREDENTIAL_STORE:-vault}
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=gogi-dev-root-token
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    # lets tools served on the host, e.g. the SDK examples' tool server, be registered
+    # with endpoints on host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
+      - vault
   workflows:
     build:
       context: .

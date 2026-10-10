@@ -3,16 +3,26 @@ package postgres
 import (
 	"context"
 	"errors"
-	"fmt"
 	"gogi/gogi/utils"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 const GOGI_TOOLS_TABLE_NAME string = "gogi_tools"
+const GOGI_TOOL_TASKS_TABLE_NAME string = "gogi_tool_tasks"
+
+const toolColumns = `id, name, version, owner, description, parameters_json, returns_json, behavior,
+	rate_limits, cost, execution_limits, required_permissions, capabilities, tags, endpoint,
+	credential_ref, mcp_server_url, mcp_tool_name, created_at, updated_at`
+
+const toolTaskColumns = `id, tool_name, tool_version, session_id, status, input_json, result_json, error,
+	created_at, updated_at`
+
+// pgUniqueViolation is the PostgreSQL error code of a unique constraint violation
+const pgUniqueViolation = "23505"
 
 type GogiToolsRepository struct {
 	pool *pgxpool.Pool
@@ -27,135 +37,93 @@ func NewGogiToolsRepository(
 	}
 }
 
-func (r *GogiToolsRepository) RegisterTool(ctx context.Context, tool *GogiTool) (*GogiTool, error) {
+// InsertTool registers a version of a tool. Versions are immutable, so registering a
+// version that is already registered fails with ErrToolVersionExists
+func (r *GogiToolsRepository) InsertTool(ctx context.Context, tool *GogiTool) (*GogiTool, error) {
 	tool.ID = utils.NewUUIDString()
 	now := time.Now()
 	tool.CreatedAt = now
 	tool.UpdatedAt = now
 
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO gogi_tools (
-			id, name, version, owner, description, is_read_only, is_idempotent,
-			capabilities, tags, endpoint, schema_json, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		tool.ID, tool.Name, tool.Version, tool.Owner,
-		tool.Description, tool.IsReadOnly, tool.IsIdempotent,
-		tool.Capabilities, tool.Tags, tool.Endpoint, tool.SchemaJson,
-		tool.CreatedAt, tool.UpdatedAt,
+		`INSERT INTO gogi_tools (`+toolColumns+`)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
+		tool.ID, tool.Name, tool.Version, tool.Owner, tool.Description, tool.ParametersJSON,
+		tool.ReturnsJSON, tool.Behavior, tool.RateLimits, tool.Cost, tool.ExecutionLimits,
+		nonNil(tool.RequiredPermissions), nonNil(tool.Capabilities), nonNil(tool.Tags), tool.Endpoint,
+		tool.CredentialRef, tool.MCPServerURL, tool.MCPToolName, tool.CreatedAt, tool.UpdatedAt,
 	)
+
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+		return nil, utils.ErrToolVersionExists
+	}
 	if err != nil {
 		return nil, err
 	}
 	return tool, nil
 }
 
-func (r *GogiToolsRepository) ListTools(ctx context.Context, tags, capabilities []string) ([]*GogiTool, error) {
-	baseQuery := `SELECT id, name, version, owner, description, is_read_only, is_idempotent,
-	                     capabilities, tags, endpoint, schema_json, created_at, updated_at
-	              FROM gogi_tools`
-
-	args := make([]any, 0)
-	var conditions []string
-
-	if len(tags) > 0 {
-		args = append(args, tags)
-		conditions = append(conditions, fmt.Sprintf("tags && $%d", len(args)))
-	}
-	if len(capabilities) > 0 {
-		args = append(args, capabilities)
-		conditions = append(conditions, fmt.Sprintf("capabilities && $%d", len(args)))
-	}
-
-	query := baseQuery
-	if len(conditions) > 0 {
-		query += " WHERE " + strings.Join(conditions, " AND ")
-	}
-	query += " ORDER BY created_at DESC"
-
-	rows, err := r.pool.Query(ctx, query, args...)
+// ListTools returns every version of the tools whose name starts with namePrefix,
+// e.g. "healthcare.scheduling." for the tools in that namespace, or of all tools if
+// namePrefix is empty
+func (r *GogiToolsRepository) ListTools(ctx context.Context, namePrefix string) ([]*GogiTool, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+toolColumns+` FROM gogi_tools WHERE starts_with(name, $1) ORDER BY name, created_at`,
+		namePrefix)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return scanTools(rows)
+}
 
-	var tools []*GogiTool
-	for rows.Next() {
-		var t GogiTool
-		var description, endpoint, schemaJson *string
-		if err := rows.Scan(
-			&t.ID, &t.Name, &t.Version, &t.Owner,
-			&description, &t.IsReadOnly, &t.IsIdempotent,
-			&t.Capabilities, &t.Tags, &endpoint, &schemaJson,
-			&t.CreatedAt, &t.UpdatedAt,
-		); err != nil {
-			return nil, err
-		}
-		if description != nil {
-			t.Description = *description
-		}
-		if endpoint != nil {
-			t.Endpoint = *endpoint
-		}
-		if schemaJson != nil {
-			t.SchemaJson = *schemaJson
-		}
-		tools = append(tools, &t)
-	}
-	if err := rows.Err(); err != nil {
+// ListToolVersions returns every version of the tool, or ErrToolNotFound if there are none
+func (r *GogiToolsRepository) ListToolVersions(ctx context.Context, name string) ([]*GogiTool, error) {
+	rows, err := r.pool.Query(ctx,
+		`SELECT `+toolColumns+` FROM gogi_tools WHERE name = $1 ORDER BY created_at`, name)
+	if err != nil {
 		return nil, err
+	}
+	tools, err := scanTools(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(tools) == 0 {
+		return nil, utils.ErrToolNotFound
 	}
 	return tools, nil
 }
 
-func (r *GogiToolsRepository) GetToolByName(ctx context.Context, name, owner string) (*GogiTool, error) {
-	var t GogiTool
-	var description, endpoint, schemaJson *string
+func scanTools(rows pgx.Rows) ([]*GogiTool, error) {
+	defer rows.Close()
 
-	err := r.pool.QueryRow(ctx,
-		`SELECT id, name, version, owner, description, is_read_only, is_idempotent,
-		        capabilities, tags, endpoint, schema_json, created_at, updated_at
-		 FROM gogi_tools
-		 WHERE name = $1 AND owner = $2`,
-		name, owner,
-	).Scan(
-		&t.ID, &t.Name, &t.Version, &t.Owner,
-		&description, &t.IsReadOnly, &t.IsIdempotent,
-		&t.Capabilities, &t.Tags, &endpoint, &schemaJson,
-		&t.CreatedAt, &t.UpdatedAt,
-	)
-
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, utils.ErrJobNotFound
+	tools := make([]*GogiTool, 0)
+	for rows.Next() {
+		var t GogiTool
+		if err := rows.Scan(
+			&t.ID, &t.Name, &t.Version, &t.Owner, &t.Description, &t.ParametersJSON, &t.ReturnsJSON,
+			&t.Behavior, &t.RateLimits, &t.Cost, &t.ExecutionLimits, &t.RequiredPermissions,
+			&t.Capabilities, &t.Tags, &t.Endpoint, &t.CredentialRef, &t.MCPServerURL, &t.MCPToolName,
+			&t.CreatedAt, &t.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		tools = append(tools, &t)
 	}
-	if err != nil {
-		return nil, err
-	}
-	if description != nil {
-		t.Description = *description
-	}
-	if endpoint != nil {
-		t.Endpoint = *endpoint
-	}
-	if schemaJson != nil {
-		t.SchemaJson = *schemaJson
-	}
-	return &t, nil
+	return tools, rows.Err()
 }
 
-func (r *GogiToolsRepository) CreateTask(ctx context.Context, toolName string) (*GogiToolTask, error) {
+// CreateToolTask records an asynchronous tool call
+func (r *GogiToolsRepository) CreateToolTask(ctx context.Context, task *GogiToolTask) (*GogiToolTask, error) {
+	task.ID = utils.NewUUIDString()
 	now := time.Now()
-	task := &GogiToolTask{
-		ID:        utils.NewUUIDString(),
-		ToolName:  toolName,
-		Status:    "pending",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}
+	task.CreatedAt = now
+	task.UpdatedAt = now
 
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO gogi_tool_tasks (id, tool_name, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, $4, $5)`,
-		task.ID, task.ToolName, task.Status, task.CreatedAt, task.UpdatedAt,
+		`INSERT INTO gogi_tool_tasks (`+toolTaskColumns+`) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+		task.ID, task.ToolName, task.ToolVersion, task.SessionID, task.Status, task.InputJson,
+		task.ResultJson, task.Error, task.CreatedAt, task.UpdatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -163,22 +131,18 @@ func (r *GogiToolsRepository) CreateTask(ctx context.Context, toolName string) (
 	return task, nil
 }
 
-func (r *GogiToolsRepository) GetTaskByID(ctx context.Context, id string) (*GogiToolTask, error) {
+func (r *GogiToolsRepository) GetToolTask(ctx context.Context, id string) (*GogiToolTask, error) {
 	var task GogiToolTask
 
 	err := r.pool.QueryRow(ctx,
-		`SELECT id, tool_name, status, input_json, result_json, created_at, updated_at
-		 FROM gogi_tool_tasks
-		 WHERE id = $1`,
-		id,
+		`SELECT `+toolTaskColumns+` FROM gogi_tool_tasks WHERE id = $1`, id,
 	).Scan(
-		&task.ID, &task.ToolName, &task.Status,
-		&task.InputJson, &task.ResultJson,
-		&task.CreatedAt, &task.UpdatedAt,
+		&task.ID, &task.ToolName, &task.ToolVersion, &task.SessionID, &task.Status,
+		&task.InputJson, &task.ResultJson, &task.Error, &task.CreatedAt, &task.UpdatedAt,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, utils.ErrJobNotFound
+		return nil, utils.ErrToolTaskNotFound
 	}
 	if err != nil {
 		return nil, err
@@ -186,12 +150,25 @@ func (r *GogiToolsRepository) GetTaskByID(ctx context.Context, id string) (*Gogi
 	return &task, nil
 }
 
-func (r *GogiToolsRepository) UpdateTaskStatus(ctx context.Context, id, status string, resultJson *string) error {
-	_, err := r.pool.Exec(ctx,
-		`UPDATE gogi_tool_tasks
-		 SET status = $1, result_json = $2, updated_at = NOW()
-		 WHERE id = $3`,
-		status, resultJson, id,
+// UpdateToolTask records the status of an asynchronous tool call, and its result or error
+func (r *GogiToolsRepository) UpdateToolTask(ctx context.Context, id, status string, resultJson *string, errorMessage string) error {
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE gogi_tool_tasks SET status = $2, result_json = $3, error = $4, updated_at = NOW() WHERE id = $1`,
+		id, status, resultJson, errorMessage,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return utils.ErrToolTaskNotFound
+	}
+	return nil
+}
+
+// nonNil returns an empty slice for nil, so NOT NULL array columns get '{}'
+func nonNil(values []string) []string {
+	if values == nil {
+		return []string{}
+	}
+	return values
 }

@@ -1,7 +1,7 @@
 # Credentials
 
 In this section we will go over how ``gogi`` handles the credentials it needs to call
-LLMs. There are two kinds of credentials:
+LLMs and tools. There are three kinds of credentials:
 
 - **Provider API keys**: the keys of the providers ``gogi`` supports out of the box,
   Anthropic and OpenAI. They are configuration of the ``llms`` service.
@@ -9,6 +9,10 @@ LLMs. There are two kinds of credentials:
   registered with the platform (``RegisterLLM``), e.g. a vLLM, TGI or Ollama server behind
   an authenticating gateway. They live in a secrets manager and registrations only
   reference them by name.
+- **Credentials of tools**: the API keys of the tools registered with the tool service
+  (``RegisterTool``), and of the MCP servers it imports tools from (``RegisterMcpServer``).
+  They are handled like the credentials of registered models, by the same credential
+  store; see [Credentials of tools](#credentials-of-tools).
 
 ## Provider API keys
 
@@ -109,6 +113,27 @@ A credential named ``<name>`` is the secret ``<prefix><name>``, by default
 
 Credentials are added to the secrets manager by whoever manages the secrets, with the secrets
 manager's own tools; the platform API offers no way to create or read them.
+
+## Credentials of tools
+
+The tool service (``llm-tools``) uses a credential store too, configured with the same variables as the
+``llms`` service (``GOGI_CREDENTIAL_STORE`` and the settings above); Docker Compose and the Kubernetes
+manifests give both services the same store. A tool references its credential with ``credential_ref``,
+e.g. ``scheduling-api-prod``:
+
+- ``RegisterTool`` and ``RegisterMcpServer`` check that the store holds it
+- for every call to the tool, the service retrieves it and sends it as ``Authorization: Bearer <credential>``
+- the credential is removed from the results and errors returned to the caller
+
+A tool's credential is stored like any other, e.g. in the Vault dev server (see
+[Local development](#local-development)):
+
+```
+docker exec -e VAULT_ADDR=http://127.0.0.1:8200 -e VAULT_TOKEN=gogi-dev-root-token gogi-vault \
+  vault kv put secret/gogi/credentials/scheduling-api-prod value=<the-api-key>
+```
+
+See [tool service](tool_service.md) for how tools are called.
 
 ## Local development
 
