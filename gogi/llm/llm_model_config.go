@@ -5,4 +5,6 @@ type LLMModelConfig struct {
 	MaxTokens   int
 	Temperature float32
 	TopP        float32
+	// Tools are the tools the model may call
+	Tools []LLMToolDefinition
 }

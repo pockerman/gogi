@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -83,8 +84,7 @@ func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
 		case anthropic.TextBlock:
 			content.WriteString(variant.Text)
 		case anthropic.ToolUseBlock:
-			toolCalls = append(toolCalls,
-				*llm.NewLLMToolCall(variant.ID, string(variant.Type), variant.Name, string(variant.Input)))
+			toolCalls = append(toolCalls, anthropicToolCall(variant))
 		}
 	}
 
@@ -92,7 +92,7 @@ func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
 		provider.Name(),
 		string(message.Model),
 		content.String(),
-		string(message.StopReason),
+		anthropicFinishReason(message.StopReason),
 		anthropicTokenUsage(message.Usage),
 		toolCalls,
 	)
@@ -119,11 +119,19 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 	}
 
 	usage := anthropicTokenUsage(message.Usage)
-	finishReason := string(message.StopReason)
+	finishReason := anthropicFinishReason(message.StopReason)
+
+	toolCalls := make([]llm.LLMToolCall, 0)
+	for _, block := range message.Content {
+		if toolUse, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
+			toolCalls = append(toolCalls, anthropicToolCall(toolUse))
+		}
+	}
 
 	return stream.Send(&gogiv1.LLMStreamChunkResponse{
 		Model:        string(message.Model),
 		FinishReason: &finishReason,
+		ToolCalls:    ToGRPCToolCalls(toolCalls),
 		Usage: &gogiv1.TokenUsage{
 			PromptTokens:     int32(usage.PromptTokens),
 			CompletionTokens: int32(usage.CompletionTokens),
@@ -187,6 +195,32 @@ func wrapAnthropicError(err error) error {
 	return fmt.Errorf("anthropic: request failed: %w", err)
 }
 
+// anthropicToolCall maps a tool use block to a tool call in the platform's format
+func anthropicToolCall(toolUse anthropic.ToolUseBlock) llm.LLMToolCall {
+	arguments := string(toolUse.Input)
+	if arguments == "" {
+		arguments = "{}"
+	}
+	return *llm.NewLLMToolCall(toolUse.ID, llm.ToolTypeFunction, toolUse.Name, arguments)
+}
+
+// anthropicFinishReason maps the stop reason of the Messages API to the finish reason
+// of the platform's format, the one of OpenAI, so that applications check one set of values
+func anthropicFinishReason(stopReason anthropic.StopReason) string {
+	switch stopReason {
+	case anthropic.StopReasonEndTurn, anthropic.StopReasonStopSequence:
+		return "stop"
+	case anthropic.StopReasonMaxTokens, anthropic.StopReasonModelContextWindowExceeded:
+		return "length"
+	case anthropic.StopReasonToolUse:
+		return "tool_calls"
+	case anthropic.StopReasonRefusal:
+		return "content_filter"
+	default:
+		return string(stopReason)
+	}
+}
+
 // anthropicTokenUsage maps the Messages API usage to TokenUsage. Cached
 // input tokens are reported separately by the API, so they are added to
 // the prompt tokens
@@ -198,7 +232,8 @@ func anthropicTokenUsage(usage anthropic.Usage) llm.TokenUsage {
 
 // preparePayload builds the Messages API request. Messages with role
 // "system" go to the top-level system prompt, as the API does not accept
-// them in the conversation
+// them in the conversation. Tool calls are tool_use blocks of the assistant's
+// message, and tool results are tool_result blocks of a user message
 func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMessage,
 	config llm.LLMModelConfig) (anthropic.MessageNewParams, error) {
 
@@ -218,18 +253,32 @@ func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMess
 	}
 
 	for _, msg := range messages {
-		switch msg.Role {
-		case "system":
+		if msg.Role == llm.RoleSystem {
 			params.System = append(params.System, anthropic.TextBlockParam{Text: msg.Content})
-		case "user":
-			params.Messages = append(params.Messages,
-				anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content)))
-		case "assistant":
-			params.Messages = append(params.Messages,
-				anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)))
-		default:
-			return anthropic.MessageNewParams{}, fmt.Errorf("anthropic: unsupported message role %q", msg.Role)
+			continue
 		}
+
+		role, blocks, err := anthropicContent(msg)
+		if err != nil {
+			return anthropic.MessageNewParams{}, err
+		}
+
+		// consecutive messages of a role are one message, e.g. the results of
+		// the tool calls of an assistant's message
+		last := len(params.Messages) - 1
+		if last >= 0 && params.Messages[last].Role == role {
+			params.Messages[last].Content = append(params.Messages[last].Content, blocks...)
+			continue
+		}
+		params.Messages = append(params.Messages, anthropic.MessageParam{Role: role, Content: blocks})
+	}
+
+	for _, tool := range config.Tools {
+		toolParam, err := anthropicTool(tool)
+		if err != nil {
+			return anthropic.MessageNewParams{}, err
+		}
+		params.Tools = append(params.Tools, anthropic.ToolUnionParam{OfTool: &toolParam})
 	}
 
 	// zero values mean "not set"; let the API apply its defaults.
@@ -242,6 +291,86 @@ func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMess
 	}
 
 	return params, nil
+}
+
+// anthropicContent returns the role and the content blocks of a message of the conversation
+func anthropicContent(msg llm.LLMMessage) (anthropic.MessageParamRole, []anthropic.ContentBlockParamUnion, error) {
+
+	switch msg.Role {
+	case llm.RoleUser:
+		return anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(msg.Content)}, nil
+
+	case llm.RoleAssistant:
+		blocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.ToolCalls)+1)
+		// the API rejects empty text blocks, and a message that only calls tools has no text
+		if msg.Content != "" || len(msg.ToolCalls) == 0 {
+			blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+		}
+		for _, call := range msg.ToolCalls {
+			arguments := call.Function.Arguments
+			if arguments == "" {
+				arguments = "{}"
+			}
+			if !json.Valid([]byte(arguments)) {
+				return "", nil, fmt.Errorf("anthropic: the arguments of tool call %q are not JSON", call.Id)
+			}
+			blocks = append(blocks, anthropic.NewToolUseBlock(call.Id, json.RawMessage(arguments), call.Function.Name))
+		}
+		return anthropic.MessageParamRoleAssistant, blocks, nil
+
+	case llm.RoleTool:
+		result := anthropic.ToolResultBlockParam{ToolUseID: msg.ToolCallId}
+		if msg.Content != "" {
+			result.Content = []anthropic.ToolResultBlockParamContentUnion{
+				{OfText: &anthropic.TextBlockParam{Text: msg.Content}},
+			}
+		}
+		return anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{{OfToolResult: &result}}, nil
+
+	default:
+		return "", nil, fmt.Errorf("anthropic: unsupported message role %q", msg.Role)
+	}
+}
+
+// anthropicTool maps a tool to a tool of the Messages API. The JSON Schema of its
+// parameters becomes the input schema: properties and required are fields of the
+// schema param, and any other keyword, e.g. $defs, is kept as an extra field
+func anthropicTool(tool llm.LLMToolDefinition) (anthropic.ToolParam, error) {
+
+	var schema map[string]any
+	if len(tool.Parameters) > 0 {
+		if err := json.Unmarshal(tool.Parameters, &schema); err != nil {
+			return anthropic.ToolParam{}, fmt.Errorf("anthropic: the parameters of tool %q are not a JSON object: %w",
+				tool.Name, err)
+		}
+	}
+
+	inputSchema := anthropic.ToolInputSchemaParam{ExtraFields: make(map[string]any)}
+	for keyword, value := range schema {
+		switch keyword {
+		case "type":
+		case "properties":
+			inputSchema.Properties = value
+		case "required":
+			required, ok := value.([]any)
+			if !ok {
+				return anthropic.ToolParam{}, fmt.Errorf("anthropic: required of tool %q is not a list", tool.Name)
+			}
+			for _, name := range required {
+				if name, ok := name.(string); ok {
+					inputSchema.Required = append(inputSchema.Required, name)
+				}
+			}
+		default:
+			inputSchema.ExtraFields[keyword] = value
+		}
+	}
+
+	toolParam := anthropic.ToolParam{Name: tool.Name, InputSchema: inputSchema}
+	if tool.Description != "" {
+		toolParam.Description = anthropic.String(tool.Description)
+	}
+	return toolParam, nil
 }
 
 func (provider *AnthropicLLMModelProvider) EstimateCost(tokens []string, model string) (float64, error) {

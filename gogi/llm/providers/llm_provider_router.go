@@ -78,9 +78,22 @@ func (p *LLMProviderRouter) RegisterModel(provider, model string, modelProvider 
 	p.registered[provider][model] = modelProvider
 }
 
-func fetchLLMModelConfigFromRequest(req *gogiv1.LLMRunRequest) LLM.LLMModelConfig {
-	return LLM.LLMModelConfig{ModelName: req.Config.Model, MaxTokens: int(req.Config.MaxTokens),
-		Temperature: req.Config.Temperature, TopP: req.Config.TopP}
+// requestInput converts and checks the messages and the configuration of a request
+func requestInput(req *gogiv1.LLMRunRequest) ([]LLM.LLMMessage, LLM.LLMModelConfig, error) {
+
+	messages, err := convertLLMMessages(req.GetMessages())
+	if err != nil {
+		return nil, LLM.LLMModelConfig{}, err
+	}
+
+	tools, err := convertTools(req.GetTools())
+	if err != nil {
+		return nil, LLM.LLMModelConfig{}, err
+	}
+
+	config := LLM.LLMModelConfig{ModelName: req.GetConfig().GetModel(), MaxTokens: int(req.GetConfig().GetMaxTokens()),
+		Temperature: req.GetConfig().GetTemperature(), TopP: req.GetConfig().GetTopP(), Tools: tools}
+	return messages, config, nil
 }
 
 func (p *LLMProviderRouter) findProvider(req *gogiv1.LLMRunRequest) (ModelProvider, error) {
@@ -114,17 +127,6 @@ func (p *LLMProviderRouter) findProvider(req *gogiv1.LLMRunRequest) (ModelProvid
 	return provider, nil
 }
 
-func convertLLMMessages(messages []*gogiv1.LLMMessage) []LLM.LLMMessage {
-	converted := make([]LLM.LLMMessage, len(messages))
-	for i, msg := range messages {
-		converted[i] = LLM.LLMMessage{
-			Role:    msg.GetRole(),
-			Content: msg.GetContent(),
-		}
-	}
-	return converted
-}
-
 func (p *LLMProviderRouter) Run(req *gogiv1.LLMRunRequest) (LLM.LLModelResponse, error) {
 
 	provider, err := p.findProvider(req)
@@ -136,7 +138,11 @@ func (p *LLMProviderRouter) Run(req *gogiv1.LLMRunRequest) (LLM.LLModelResponse,
 		return LLM.LLModelResponse{}, err
 	}
 
-	return provider.Run(convertLLMMessages(req.Messages), fetchLLMModelConfigFromRequest(req))
+	messages, config, err := requestInput(req)
+	if err != nil {
+		return LLM.LLModelResponse{}, err
+	}
+	return provider.Run(messages, config)
 }
 
 func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
@@ -148,5 +154,9 @@ func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
 		return err
 	}
 
-	return provider.RunStream(convertLLMMessages(req.Messages), fetchLLMModelConfigFromRequest(req), stream)
+	messages, config, err := requestInput(req)
+	if err != nil {
+		return err
+	}
+	return provider.RunStream(messages, config, stream)
 }

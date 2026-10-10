@@ -140,7 +140,7 @@ func TestAnthropicPreparePayloadDefaults(t *testing.T) {
 func TestAnthropicPreparePayloadUnknownRole(t *testing.T) {
 	provider := &AnthropicLLMModelProvider{}
 
-	_, err := provider.preparePayload([]llm.LLMMessage{{Role: "tool", Content: "x"}}, llm.LLMModelConfig{})
+	_, err := provider.preparePayload([]llm.LLMMessage{{Role: "function", Content: "x"}}, llm.LLMModelConfig{})
 	if err == nil {
 		t.Errorf("expected an error for an unsupported role")
 	}
@@ -158,7 +158,7 @@ func TestAnthropicRun(t *testing.T) {
 	if response.Provider != "anthropic" || response.Model != "claude-opus-5-5" {
 		t.Errorf("wrong provider/model %s/%s", response.Provider, response.Model)
 	}
-	if response.Content != "Checking" || response.FinishReason != "tool_use" {
+	if response.Content != "Checking" || response.FinishReason != "tool_calls" {
 		t.Errorf("wrong content/finish reason %q/%q", response.Content, response.FinishReason)
 	}
 	if response.TokenUsage != llm.NewTokenUsage(5, 7, 12) {
@@ -211,7 +211,7 @@ func TestAnthropicRunStream(t *testing.T) {
 	}
 
 	final := stream.chunks[2]
-	if final.GetFinishReason() != "end_turn" {
+	if final.GetFinishReason() != "stop" {
 		t.Errorf("wrong finish reason %q", final.GetFinishReason())
 	}
 	// 3 input + 2 cache read prompt tokens, 4 output tokens

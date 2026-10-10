@@ -30,6 +30,10 @@ The model service provides the following utilities
 A registered model that needs an API key references a credential held by the platform's
 credential store, rather than containing the secret; see [credentials](credentials.md).
 
+A request can give the model tools to call. The model's tool calls are returned in the OpenAI
+format whatever the provider, and the application runs them with the tool service; see
+[tools for a model](tool_service.md#tools-for-a-model).
+
 
 ---
 **Remark: OpenAI message format as platform standard**
