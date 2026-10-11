@@ -40,6 +40,9 @@ jobs:
           chmod +x ./build_protobuf.sh
           ./build_protobuf.sh
 
+      - name: Format code
+        run: gofmt -w .
+
       - name: Build
         run: go build -v ./...
 

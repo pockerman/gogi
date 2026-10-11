@@ -21,6 +21,7 @@ services:
 
   postgres:
     image: postgres:16
+    container_name: gogi-postgres
     environment:
       POSTGRES_DB: gogi
       POSTGRES_USER: gogi
@@ -32,29 +33,31 @@ services:
     restart: unless-stopped
   chromadb:
     image: chromadb/chroma:latest
-    container_name: chromadb
+    container_name: gogi-chromadb
     ports:
       - "8000:8000"
     volumes:
       - chroma-data:/chroma/chroma
     restart: unless-stopped
   minio:
-    image: minio/minio:latest
-    container_name: exact-marine-minio-container
+    # quay.io/minio/aistor/minio is MinIO's licensed "AIStor" edition and refuses all
+    # bucket/object operations without a paid license ("Access Denied. No license is
+    # installed."), even though health checks pass. bitnamilegacy/minio is a free,
+    # unmodified community MinIO build with no such restriction.
+    image: bitnamilegacy/minio:latest
+    container_name: gogi-minio
     environment:
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
-      - MINIO_REGION=us-east-1
-      - MINIO_PORT=9000
     restart: unless-stopped
     ports:
       - 9001:9001
       - 9000:9000
-    command: [ "server", "/data", "--console-address", ":9001" ]
   gateway:
     build:
       context: .
       dockerfile: docker/gateway.Dockerfile
+    container_name: gogi-gateway
     ports:
       - "8080:8080"
       - "50051:50051"
@@ -76,11 +79,13 @@ services:
     depends_on:
       - documents
       - indexes
+      - workflows
       - postgres
   documents:
     build:  
       context: .
       dockerfile: docker/documents.Dockerfile
+    container_name: gogi-documents
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -99,6 +104,7 @@ services:
     build:  
       context: .
       dockerfile: docker/indexes.Dockerfile
+    container_name: gogi-indexes
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -109,10 +115,37 @@ services:
     depends_on:
       - postgres
       - chromadb
+  # HashiCorp Vault dev server: the default credential store for local development.
+  # Dev mode keeps everything in memory, unsealed, with a fixed root token:
+  # never use it outside development
+  vault:
+    image: hashicorp/vault:1.20
+    container_name: gogi-vault
+    cap_add:
+      - IPC_LOCK
+    environment:
+      - VAULT_DEV_ROOT_TOKEN_ID=gogi-dev-root-token
+      - VAULT_DEV_LISTEN_ADDRESS=0.0.0.0:8200
+    ports:
+      - "8200:8200"
+
+  # LocalStack emulates AWS Secrets Manager. Start it with
+  # GOGI_CREDENTIAL_STORE=aws docker compose --profile aws up
+  localstack:
+    image: localstack/localstack:4
+    container_name: gogi-localstack
+    profiles:
+      - aws
+    environment:
+      - SERVICES=secretsmanager
+    ports:
+      - "4566:4566"
+
   llms:
     build:
       context: .
       dockerfile: docker/llms.Dockerfile
+    container_name: gogi-llms
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -122,13 +155,24 @@ services:
       - GOGI_VECTOR_DB_PORT=8000
       - GOGI_LLMS_PORT=:50057
       - ANTHROPIC_API_KEY=1234569878
+      - OPENAI_API_KEY=1234569878
+      # credential store of registered models: vault (default) or aws (LocalStack)
+      - GOGI_CREDENTIAL_STORE=${GOGI_CREDENTIAL_STORE:-vault}
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=gogi-dev-root-token
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
     depends_on:
       - postgres
       - chromadb
+      - vault
   prompts:
     build:
       context: .
       dockerfile: docker/prompts.Dockerfile
+    container_name: gogi-prompts
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -143,6 +187,7 @@ services:
     build:
       context: .
       dockerfile: docker/llm_sessions.Dockerfile
+    container_name: gogi-llm-sessions
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
@@ -154,22 +199,53 @@ services:
     build:
       context: .
       dockerfile: docker/llm_tools.Dockerfile
+    container_name: gogi-llm-tools
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_LLM_TOOLS_PORT=:50060
+      # credential store of tools: vault (default) or aws (LocalStack)
+      - GOGI_CREDENTIAL_STORE=${GOGI_CREDENTIAL_STORE:-vault}
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=gogi-dev-root-token
+      - AWS_ENDPOINT_URL=http://localstack:4566
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+    # lets tools served on the host, e.g. the SDK examples' tool server, be registered
+    # with endpoints on host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+      - vault
+  workflows:
+    build:
+      context: .
+      dockerfile: docker/workflows.Dockerfile
+    container_name: gogi-workflows
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_GATEWAY_URL=gateway:50051
+      - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
+      - GOGI_WORKFLOWS_PORT=:50053
     depends_on:
       - postgres
   guardrails:
     build:
       context: .
       dockerfile: docker/guardrails.Dockerfile
+    container_name: gogi-guardrails
     environment:
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_GUARDRAILS_PORT=:50061
+      # policies as configuration: the YAML files here are loaded on start
+      - GOGI_GUARDRAILS_POLICY_DIR=/etc/gogi/guardrails
+    volumes:
+      - ./config/guardrails:/etc/gogi/guardrails:ro
     depends_on:
       - postgres
 
@@ -208,6 +284,7 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
+      - OPENAI_API_KEY=1234569878
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

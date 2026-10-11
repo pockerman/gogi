@@ -11,9 +11,11 @@ from workers.worker_utils.chunking.text_chunk_model import TextChunk
 
 class EmbedderClientType(StrEnum):
     SENTENCE_TRANSFORMER = "sentence-transformer"
+    OPENAI = "openai"
 
 class EmbedderModelType(StrEnum):
     CLIP = "clip"
+    TEXT_EMBEDDING_3_SMALL = "text-embedding-3-small"
 
 class EmbeddingBase(ABC):
 

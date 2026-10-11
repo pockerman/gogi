@@ -1,0 +1,20 @@
+CREATE TABLE gogi_prompts (
+    id UUID PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT NOT NULL DEFAULT 'v1.0.0',
+    owner TEXT NOT NULL,
+    gogi_index TEXT,
+    minio_path TEXT NOT NULL,
+    author TEXT,
+    model TEXT,
+    temperature DOUBLE PRECISION,
+    max_tokens INT,
+    stop_sequences TEXT[],
+    frequency_penalty DOUBLE PRECISION,
+    presence_penalty DOUBLE PRECISION,
+    test_set_id TEXT,
+    test_set_path TEXT,
+    metrics JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

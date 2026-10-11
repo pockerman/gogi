@@ -20,14 +20,20 @@ func NewChromaDBClient(host string, port int) *ChromaDBClient {
 }
 
 type CreateCollectionRequest struct {
-	Name     string                 `json:"name"`
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Name        string                 `json:"name"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	GetOrCreate bool                   `json:"get_or_create"`
 }
 
+// CreateCollection ensures a collection with this name exists. It is idempotent: calling it
+// for a collection that already exists returns the existing collection instead of erroring,
+// so callers can safely call it to self-heal a collection that went missing (e.g. after the
+// vector store lost data) without having to track whether it was created before.
 func (c *ChromaDBClient) CreateCollection(name string) error {
 
 	reqBody := CreateCollectionRequest{
-		Name: name,
+		Name:        name,
+		GetOrCreate: true,
 	}
 
 	body, err := json.Marshal(reqBody)

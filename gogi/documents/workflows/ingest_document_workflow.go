@@ -5,6 +5,7 @@ import (
 
 	"gogi/gogi/utils"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -33,7 +34,9 @@ func IngestDocumentWorkflow(ctx workflow.Context, config IngestDocumentWorkflowC
 	opts := workflow.ActivityOptions{
 		TaskQueue:           taskQueueName,    // Matches Python worker
 		StartToCloseTimeout: 10 * time.Minute, // Adjust based on document size
-		// RetryPolicy can be added here for resilience
+		RetryPolicy: &temporal.RetryPolicy{
+			MaximumAttempts: 3, // bounded so a persistently failing job doesn't retry forever
+		},
 	}
 	ctx = workflow.WithActivityOptions(ctx, opts)
 

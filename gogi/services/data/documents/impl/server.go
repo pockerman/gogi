@@ -96,6 +96,51 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 	}, nil
 }
 
+func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
+
+	config := workflows.SearchDocumentsWorkflowConfig{
+		IndexName:        req.GetIndexName(),
+		Query:            req.GetQuery(),
+		TopK:             int(req.GetTopK()),
+		EmbeddingsModel:  req.GetEmbeddingsModel(),
+		EmbeddingsClient: req.GetEmbeddingsClient(),
+		DocumentIds:      req.GetDocumentIds(),
+		MetadataFilter:   req.GetMetadataFilter(),
+	}
+
+	taskQueueName := utils.GetIngestionDocumentQueueName()
+	options := client.StartWorkflowOptions{
+		ID:        uuid.New().String(),
+		TaskQueue: taskQueueName,
+	}
+
+	// Unlike IngestDocument, a search has to answer the caller directly, so we block on
+	// the workflow's result instead of returning a job id for the client to poll.
+	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.SearchDocumentsWorkflow, config)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to start search workflow: %v", err)
+	}
+
+	var result workflows.SearchDocumentsWorkflowResult
+	if err := we.Get(ctx, &result); err != nil {
+		return nil, status.Errorf(codes.Internal, "search failed: %v", err)
+	}
+
+	chunks := make([]*gogiv1.DocumentChunk, 0, len(result.Chunks))
+	for _, c := range result.Chunks {
+		chunks = append(chunks, &gogiv1.DocumentChunk{
+			ChunkId:    c.ChunkID,
+			DocumentId: c.DocumentID,
+			IndexName:  c.IndexName,
+			Content:    c.Content,
+			Score:      c.Score,
+			Metadata:   c.Metadata,
+		})
+	}
+
+	return &gogiv1.SearchDocumentsResponse{Chunks: chunks}, nil
+}
+
 func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 
 	// we need to update the DB for this

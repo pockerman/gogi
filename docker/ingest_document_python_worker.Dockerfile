@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # docker/ingest_document_python_worker.Dockerfile
 
 FROM python:3.12-slim
@@ -16,13 +17,15 @@ RUN apt-get update && apt-get install -y \
 # Copy the worker_utils requirements
 COPY workers/worker_utils/requirements.txt .
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy worker requirements first for better Docker layer caching
 COPY workers/ingest_document/requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy worker source code
 COPY workers ./workers

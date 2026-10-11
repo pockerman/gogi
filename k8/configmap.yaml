@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gogi-config
+  namespace: gogi
+
+data:
+
+  # Vector DB (Chroma) connection — read by utils.GetVectorDBStorageConnectionDetails()
+  GOGI_VECTOR_DB_TYPE: chroma
+  GOGI_VECTOR_DB_HOST: chromadb
+  GOGI_VECTOR_DB_PORT: "8000"
+
+  # MinIO connection — read by the prompts service. Credentials live in
+  # the gogi-secrets Secret (GOGI_MINIO_ROOT_USER / GOGI_MINIO_ROOT_PASSWORD).
+  GOGI_MINIO_HOST: minio:9000
+
+  # Gateway's view of every platform service it proxies to, keyed by the
+  # env var each backend's RegisterPlatformServices call looks up.
+  GOGI_DOCUMENT_SERVICE_ADDR: documents:50054
+  GOGI_INDEX_SERVICE_ADDR: indexes:50055
+  GOGI_LLM_SERVICE_ADDR: llms:50057
+  GOGI_PROMPTS_SERVICE_ADDR: prompts:50058
+  GOGI_LLM_SESSIONS_ADDR: llm-sessions:50059
+  GOGI_LLM_TOOLS_SERVICE_ADDR: llm-tools:50060
+  GOGI_GUARDRAILS_SERVICE_ADDR: guardrails:50061
+  GOGI_WORKFLOW_SERVICE_ADDR: workflows:50053
+
+  # Credential store of registered models, read by the llms service. The Vault
+  # dev server in k8/vault is for local development only; VAULT_TOKEN lives in
+  # the gogi-secrets Secret
+  GOGI_CREDENTIAL_STORE: vault
+  VAULT_ADDR: http://vault:8200

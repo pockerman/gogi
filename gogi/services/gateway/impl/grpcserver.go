@@ -47,8 +47,11 @@ func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy) *GrpcServ
 	gogiv1.RegisterLLMSessionServerServer(server,
 		&LLMSessionServiceProxy{proxy: proxy})
 
+	gogiv1.RegisterWorkflowServerServer(server,
+		&WorkflowsProxy{proxy: proxy})
+
 	gogiv1.RegisterToolServerServer(server,
-		&ToolServiceProxy{proxy: proxy})
+		&ToolsServiceProxy{proxy: proxy})
 
 	gogiv1.RegisterGuardrailsServiceServer(server,
 		&GuardrailsServiceProxy{proxy: proxy})

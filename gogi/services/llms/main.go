@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"gogi/gogi/credentials"
 	LLM_PROVIDERS "gogi/gogi/llm/providers"
 	"gogi/gogi/services/llms/impl"
 	"gogi/gogi/storage/postgres"
@@ -20,9 +22,19 @@ import (
 
 func buildModelRouterProvider() *LLM_PROVIDERS.LLMProviderRouter {
 
-	anthropicAPIKey := utils.GetEnv("ANTHROPIC_API_KEY", "")
+	anthropicProvider := LLM_PROVIDERS.NewAnthropicLLMModelProvider(utils.GetEnv("ANTHROPIC_API_KEY", ""))
+	if anthropicBaseURL := utils.GetEnv("ANTHROPIC_BASE_URL", ""); anthropicBaseURL != "" {
+		anthropicProvider.SetBaseURL(anthropicBaseURL)
+	}
+
+	openAIProvider := LLM_PROVIDERS.NewOpenAILLMModelProvider(utils.GetEnv("OPENAI_API_KEY", ""))
+	if openAIBaseURL := utils.GetEnv("OPENAI_BASE_URL", ""); openAIBaseURL != "" {
+		openAIProvider.SetBaseURL(openAIBaseURL)
+	}
+
 	providers := map[string]LLM_PROVIDERS.ModelProvider{
-		"anthropic": LLM_PROVIDERS.NewAnthropicLLMModelProvider(anthropicAPIKey),
+		"anthropic": anthropicProvider,
+		"openai":    openAIProvider,
 	}
 	return LLM_PROVIDERS.NewLLMProviderRouter(providers)
 
@@ -62,8 +74,34 @@ func main() {
 
 	modelRouter := buildModelRouterProvider()
 
+	// how failed calls are retried, and the models they fall back to by default
+	resilienceConfig, err := LLM_PROVIDERS.ResilienceConfigFromEnv()
+	if err != nil {
+		log.Fatalf("failed to read the resilience configuration: %v", err)
+	}
+	modelRouter.SetResilienceConfig(resilienceConfig)
+	log.Infof("Retrying failed model calls up to %d times; default fallback models: %v",
+		resilienceConfig.Retry.MaxRetries, resilienceConfig.Fallback)
+
+	// stops calling models that keep failing, so requests fall back without waiting
+	breaker, err := utils.NewCircuitBreakerFromEnv("GOGI_LLM")
+	if err != nil {
+		log.Fatalf("failed to create the circuit breaker: %v", err)
+	}
+	modelRouter.SetCircuitBreaker(breaker)
+
+	// the credentials of registered models, e.g. in AWS Secrets Manager or HashiCorp Vault
+	credentialStore, err := credentials.NewCredentialStoreFromEnv(context.Background())
+	if err != nil {
+		log.Fatalf("failed to create the credential store: %v", err)
+	}
+	if credentialStore == nil {
+		log.Infof("No credential store configured; registered models cannot reference credentials")
+	}
+
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter))
+	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter,
+		credentialStore))
 
 	// add the health server
 	healthServer := health.NewServer()

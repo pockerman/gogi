@@ -27,16 +27,21 @@ class PostgresDB:
     self,
     job_id: str,
     status: str,
-    progress: float, ):
+    progress: float,
+    error_message: str | None = None, ):
         with self._conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE jobs
                 SET
-                    status = %s
+                    status = %s,
+                    error_message = %s,
+                    completed_at = NOW()
                 WHERE id = %s
                 """,
-                (status, job_id),
+                # the Go side scans this column into a plain (non-nullable) string, so
+                # NULL must never be written here; use "" to mean "no error" instead.
+                (status, error_message or "", job_id),
             )
 
     def get_job(self, job_id: str):

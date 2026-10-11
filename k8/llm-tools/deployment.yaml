@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: llm-tools
+  namespace: gogi
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: llm-tools
+  template:
+    metadata:
+      labels:
+        app: llm-tools
+    spec:
+      containers:
+      - name: llm-tools
+        image: gogi/llm-tools:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50060
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets

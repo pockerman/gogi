@@ -1,17 +1,28 @@
 package utils
 
+import "time"
+
+// RetryConfig says how a failed call is retried: up to MaxRetries times, waiting
+// InitialDelay before the first retry and doubling the delay, up to MaxDelay, on every retry
 type RetryConfig struct {
-	maxRetries         int
-	intialDelay        float32
-	exponentialBackoff bool
-	maxDelay           float32
+	MaxRetries   int
+	InitialDelay time.Duration
+	MaxDelay     time.Duration
 }
 
-func New() RetryConfig {
+func DefaultRetryConfig() RetryConfig {
 	return RetryConfig{
-		maxRetries:         3,
-		intialDelay:        1.0,
-		exponentialBackoff: true,
-		maxDelay:           60.0,
+		MaxRetries:   2,
+		InitialDelay: 500 * time.Millisecond,
+		MaxDelay:     20 * time.Second,
 	}
+}
+
+// Delay returns the delay before the given retry, counting from 0
+func (config RetryConfig) Delay(retry int) time.Duration {
+	delay := config.InitialDelay
+	for i := 0; i < retry && delay < config.MaxDelay; i++ {
+		delay *= 2
+	}
+	return min(delay, config.MaxDelay)
 }

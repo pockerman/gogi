@@ -22,7 +22,7 @@ func main() {
 	PROTOCOL := utils.GetEnv("GOGI_PROMPTS_PROTOCOL", "tcp")
 	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
 	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
-	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_HOST", "password")
+	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_ROOT_PASSWORD", "password")
 
 	// initialize the logger for the platform
 	utils.InitLogger()

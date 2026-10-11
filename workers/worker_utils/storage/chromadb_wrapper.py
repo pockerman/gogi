@@ -79,26 +79,26 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         collection = self._chroma_client.get_collection(index_name)
 
         if metadata_filters:
-            retrieved_result = collection.query(query_embeddings=query_embedding,
+            retrieved_result = collection.query(query_embeddings=[query_embedding],
                                                 n_results=top_k,
                                                 where=metadata_filters)
         else:
-            retrieved_result = collection.query(query_embeddings=query_embedding,
+            retrieved_result = collection.query(query_embeddings=[query_embedding],
                                                 n_results=top_k)
-            
-        # TODO implement the score threshold   
-        # 
-        results = [] 
+
+        # TODO implement the score threshold
+        #
+        results = []
 
         ids = retrieved_result['ids'][0] if 'ids' in retrieved_result else None
         distances = retrieved_result['distances'][0] if 'distances' in retrieved_result else None
         documents = retrieved_result['documents'][0] if 'documents' in retrieved_result else None
-        metadatas = retrieved_result['metadatas'] if 'metadatas' in retrieved_result else None
-        uris = retrieved_result['uris'][0] if 'uris' in retrieved_result and retrieved_result['uris'] else None
-        data = retrieved_result['data'][0] if 'data' in retrieved_result and retrieved_result['data'] else None
+        metadatas = retrieved_result['metadatas'][0] if 'metadatas' in retrieved_result else None
 
         for id, dist, doc, metadata in zip(ids, distances, documents, metadatas):
-            results.append(VectorStoreSearchResult(chunk_id=id, text=doc, score=dist, metadata=metadata))
+            metadata = metadata or {}
+            results.append(VectorStoreSearchResult(
+                chunk_id=id, document_id=metadata.get("document_id", ""), text=doc, score=dist, metadata=metadata
+            ))
 
-       
-        return results  
+        return results

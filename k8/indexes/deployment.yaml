@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: indexes
+  namespace: gogi
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: indexes
+  template:
+    metadata:
+      labels:
+        app: indexes
+    spec:
+      containers:
+      - name: indexes
+        image: gogi/indexes:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50055
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets

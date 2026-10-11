@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/services/guardrails/impl"
 
@@ -41,8 +42,20 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	store := postgres.NewGogiGuardrailsRepository(pool)
+
+	// policies as configuration (listing 6.26): the YAML files of the policy directory are
+	// loaded on start, and replace the policies with the same names
+	if dir := utils.GetEnv("GOGI_GUARDRAILS_POLICY_DIR", ""); dir != "" {
+		loaded, err := impl.LoadPolicyFiles(context.Background(), store, dir)
+		if err != nil {
+			log.Fatalf("failed to load the guardrail policies of %s: %v", dir, err)
+		}
+		log.Infof("Loaded %d guardrail policies from %s", loaded, dir)
+	}
+
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterGuardrailsServiceServer(grpcServer, impl.NewGuardrailsServer(pool))
+	gogiv1.RegisterGuardrailsServiceServer(grpcServer, impl.NewGuardrailsServer(store))
 
 	// add the health server
 	healthServer := health.NewServer()

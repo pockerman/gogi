@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/llm"
 
@@ -12,11 +13,13 @@ import (
 type ModelProvider interface {
 
 	// Run processes a list of LLMMessage inputs and returns a complete response.
-	// This method is synchronous and blocks until the full response is available.
-	Run(messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error)
+	// This method is synchronous and blocks until the full response is available,
+	// or ctx is done.
+	Run(ctx context.Context, messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error)
 
 	// RunStream processes a list of LLMMessage inputs and returns a streamed response.
 	// The response may be delivered incrementally depending on the implementation.
+	// The call ends when the stream's context is done.
 	RunStream(
 		messages []llm.LLMMessage,
 		config llm.LLMModelConfig,

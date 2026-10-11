@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: documents
+  namespace: gogi
+
+spec:
+
+  type: ClusterIP
+
+  selector:
+    app: documents
+
+  ports:
+  - name: grpc
+    port: 50054
+    targetPort: 50054

@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: guardrails
+  namespace: gogi
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: guardrails
+  template:
+    metadata:
+      labels:
+        app: guardrails
+    spec:
+      containers:
+      - name: guardrails
+        image: gogi/guardrails:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50061
+        env:
+        # policies as configuration: the YAML files of the gogi-guardrail-policies ConfigMap,
+        # created with e.g.
+        #   kubectl -n gogi create configmap gogi-guardrail-policies --from-file=config/guardrails/
+        - name: GOGI_GUARDRAILS_POLICY_DIR
+          value: /etc/gogi/guardrails
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets
+        volumeMounts:
+        - name: policies
+          mountPath: /etc/gogi/guardrails
+          readOnly: true
+      volumes:
+      - name: policies
+        configMap:
+          name: gogi-guardrail-policies
+          # without the ConfigMap the service starts with the policies added through the API
+          optional: true
