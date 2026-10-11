@@ -242,10 +242,6 @@ services:
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_GUARDRAILS_PORT=:50061
-      # policies as configuration: the YAML files here are loaded on start
-      - GOGI_GUARDRAILS_POLICY_DIR=/etc/gogi/guardrails
-    volumes:
-      - ./config/guardrails:/etc/gogi/guardrails:ro
     depends_on:
       - postgres
 

@@ -40,11 +40,11 @@ func TestGuardrailPolicies(t *testing.T) {
 	repo := newTestGuardrailsRepository(t)
 	ctx := context.Background()
 
-	if _, err := repo.GetPolicy(ctx, "intake-input"); !errors.Is(err, guardrails.ErrPolicyNotFound) {
+	if _, err := repo.GetPolicy(ctx, "travel-desk-input"); !errors.Is(err, guardrails.ErrPolicyNotFound) {
 		t.Errorf("expected ErrPolicyNotFound, got %v", err)
 	}
 
-	policy := guardrails.Policy{Name: "intake-input", Type: guardrails.TypeInput, ApplicationID: "patient-intake",
+	policy := guardrails.Policy{Name: "travel-desk-input", Type: guardrails.TypeInput, ApplicationID: "travel-desk",
 		Mode: guardrails.ModeEnforce, RulesJSON: `[{"type": "prompt_injection"}]`, Version: "1.0.0",
 		Source: guardrails.SourceFile}
 	added, err := repo.UpsertPolicy(ctx, policy)
@@ -66,24 +66,24 @@ func TestGuardrailPolicies(t *testing.T) {
 		t.Errorf("a changed policy should get a new revision, got %+v, %v", changed, err)
 	}
 
-	if _, err := repo.UpsertPolicy(ctx, guardrails.Policy{Name: "billing-output", Type: guardrails.TypeOutput,
-		ApplicationID: "billing", Mode: guardrails.ModeEnforce, RulesJSON: `[{"type":"pii_detection"}]`,
+	if _, err := repo.UpsertPolicy(ctx, guardrails.Policy{Name: "rentals-output", Type: guardrails.TypeOutput,
+		ApplicationID: "rentals", Mode: guardrails.ModeEnforce, RulesJSON: `[{"type":"pii_detection"}]`,
 		Source: guardrails.SourceAPI}); err != nil {
 		t.Fatal(err)
 	}
 	all, _ := repo.ListPolicies(ctx, "", "")
-	billing, _ := repo.ListPolicies(ctx, "billing", "")
+	rentals, _ := repo.ListPolicies(ctx, "rentals", "")
 	inputs, _ := repo.ListPolicies(ctx, "", guardrails.TypeInput)
-	if len(all) != 2 || all[0].Name != "billing-output" || len(billing) != 1 || len(inputs) != 1 ||
-		inputs[0].Name != "intake-input" {
-		t.Errorf("wrong lists %d %d %d", len(all), len(billing), len(inputs))
+	if len(all) != 2 || all[0].Name != "rentals-output" || len(rentals) != 1 || len(inputs) != 1 ||
+		inputs[0].Name != "travel-desk-input" {
+		t.Errorf("wrong lists %d %d %d", len(all), len(rentals), len(inputs))
 	}
 	if compiled, _, err := guardrails.Compile(inputs[0]); err != nil || compiled == nil {
 		t.Errorf("a stored policy should compile, got %v", err)
 	}
 
-	deleted, _ := repo.DeletePolicy(ctx, "billing-output")
-	again, _ := repo.DeletePolicy(ctx, "billing-output")
+	deleted, _ := repo.DeletePolicy(ctx, "rentals-output")
+	again, _ := repo.DeletePolicy(ctx, "rentals-output")
 	if !deleted || again {
 		t.Errorf("wrong deletions %v %v", deleted, again)
 	}
@@ -98,7 +98,7 @@ func TestGuardrailEvaluationsAndViolations(t *testing.T) {
 		{InspectionPoint: guardrails.PointAction, Action: "cancel", Outcome: guardrails.OutcomeBlocked, SessionID: "s-1"},
 		{InspectionPoint: guardrails.PointAction, Action: "cancel", Outcome: guardrails.OutcomeAllowed, SessionID: "s-1", TurnID: "t-2",
 			Triggered:   []guardrails.TriggeredRule{{PolicyName: "p", RuleType: "max_per_session", Shadow: true}},
-			PolicyNames: []string{"p"}, Context: map[string]string{"user_id": "p-42"}},
+			PolicyNames: []string{"p"}, Context: map[string]string{"user_id": "t-81"}},
 		{InspectionPoint: guardrails.PointInput, Outcome: guardrails.OutcomeAllowed, SessionID: "s-1"},
 		{InspectionPoint: guardrails.PointAction, Action: "book", Outcome: guardrails.OutcomeAllowed, SessionID: "s-2"},
 	} {
@@ -115,8 +115,8 @@ func TestGuardrailEvaluationsAndViolations(t *testing.T) {
 
 	start := time.Now().Add(-time.Minute)
 	for _, severity := range []string{"low", "blocked", "high"} {
-		if _, err := repo.RecordViolation(ctx, guardrails.Violation{PolicyName: "booking-rules", Action: "book",
-			Severity: severity, Context: map[string]string{"user_id": "p-42"}, Details: "limit"}); err != nil {
+		if _, err := repo.RecordViolation(ctx, guardrails.Violation{PolicyName: "travel-desk-rules", Action: "book",
+			Severity: severity, Context: map[string]string{"user_id": "t-81"}, Details: "limit"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -124,8 +124,8 @@ func TestGuardrailEvaluationsAndViolations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	violations, err := repo.ListViolations(ctx, guardrails.ViolationFilter{PolicyName: "booking-rules", Since: start})
-	if err != nil || len(violations) != 3 || violations[0].Severity != "high" || violations[2].Context["user_id"] != "p-42" {
+	violations, err := repo.ListViolations(ctx, guardrails.ViolationFilter{PolicyName: "travel-desk-rules", Since: start})
+	if err != nil || len(violations) != 3 || violations[0].Severity != "high" || violations[2].Context["user_id"] != "t-81" {
 		t.Errorf("wrong violations %+v, %v", violations, err)
 	}
 	limited, _ := repo.ListViolations(ctx, guardrails.ViolationFilter{Severity: "low", Limit: 1})

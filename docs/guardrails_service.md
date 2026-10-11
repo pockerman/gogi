@@ -20,12 +20,12 @@ A policy has a name, a type, the application it applies to, a mode and a list of
 
 ```json
 {
-  "name": "patient-intake-input",
+  "name": "travel-desk-input",
   "type": "input",
-  "application_id": "patient-intake",
+  "application_id": "travel-desk",
   "mode": "enforce",
   "version": "1.0.0",
-  "rules_json": "[{\"type\": \"prompt_injection\", \"action\": \"block\", \"response\": \"I can only help with intake.\"}]"
+  "rules_json": "[{\"type\": \"prompt_injection\", \"action\": \"block\", \"response\": \"I can help with trips and bookings only.\"}]"
 }
 ```
 
@@ -58,25 +58,26 @@ The service loads the YAML files (`.yaml`, `.yml`) of `GOGI_GUARDRAILS_POLICY_DI
 file can hold several policies, separated by `---`:
 
 ```yaml
-name: patient-intake-input
+name: travel-desk-input
 version: "1.0.0"
-application: patient-intake
+application: travel-desk
 type: input
 rules:
   - type: prompt_injection
     action: block
-    response: "I can only help with patient intake questions."
+    response: "I can help with trips and bookings only."
 ```
 
 A file's policy replaces the policy with the same name, including one added through the API. Loading the same
 files again changes nothing, so every replica can load them. An invalid file, an unknown field or a name defined
 twice stops the service from starting, so a broken policy never goes unnoticed.
 
-`config/guardrails/` holds sample policies. Docker Compose mounts it. On Kubernetes, put the files in the
-`gogi-guardrail-policies` ConfigMap:
+With Docker Compose, mount a directory of policy files into the `guardrails` service and set
+`GOGI_GUARDRAILS_POLICY_DIR` to it. On Kubernetes, the deployment mounts the `gogi-guardrail-policies` ConfigMap,
+if it exists, at `/etc/gogi/guardrails`:
 
 ```bash
-kubectl -n gogi create configmap gogi-guardrail-policies --from-file=config/guardrails/
+kubectl -n gogi create configmap gogi-guardrail-policies --from-file=<directory of policy files>
 ```
 
 ## Input and output rules
@@ -114,19 +115,23 @@ not enforced yet. The same goes for the `transform` action (e.g. `add_hedging_la
 | `block` (default for the others) | Replaces the whole response with the rule's `fallback`, `response` or `message` |
 | `warn`, `log_only` | Leaves the response as it is                                |
 
-The book's severity tiers (listing 6.23) are written as rules with a `severity` and a list of `types`:
+Severity tiers (section 6.7.2) are written as rules with a `severity` and a list of `types`:
 
 ```yaml
 rules:
   - severity: low
     types: [max_length]
-    max_chars: 2000
+    max_chars: 4000
     action: log_only
+  - severity: medium
+    types: [pii_detection]
+    categories: [email, phone]
+    action: redact
   - severity: high
-    types: [pii_exposure]
-    categories: [ssn]
+    types: [pii_detection]
+    categories: [credit_card]
     action: block
-    fallback: "I don't have enough information to answer that accurately."
+    fallback: "That reply contained payment details, so I've held it back. Please ask me again."
 ```
 
 **Built-in checks and filters.** Without a policy, `ValidateInput` can run the `checks` `prompt_injection` and
@@ -136,20 +141,25 @@ names fail with `INVALID_ARGUMENT`. Their triggered rules name the policy `built
 ## Tool validation rules
 
 A `tool_validation` rule checks the arguments of the tools it names (listing 6.22). `tool` (or `tools`) takes
-glob patterns, e.g. `healthcare.scheduling.*`:
+glob patterns, e.g. `travel.flights.*`:
 
 ```yaml
 rules:
-  - tool: healthcare.scheduling.book_appointment
+  - tool: travel.flights.book
     constraints:
-      - field: appointment_date
+      - field: departure_date
         checks:
           - type: required
           - type: future_date
             min_days_ahead: 1
           - type: max_days_ahead
-            days: 90
-      - field: patient_id
+            days: 330
+      - field: passengers
+        checks:
+          - type: range
+            min: 1
+            max: 9
+      - field: traveller_id
         checks:
           - type: matches_session_user
 ```
@@ -166,7 +176,7 @@ rules:
 | `matches_session_user` | equals the context's `user_id`                               |                     |
 | `matches_context`      | equals the context's value for `key`                         | `key`               |
 
-Fields can be nested, e.g. `patient.id`. Checks other than `required` are skipped when the argument is missing.
+Fields can be nested, e.g. `traveller.id`. Checks other than `required` are skipped when the argument is missing.
 Dates are `YYYY-MM-DD` or RFC 3339, and days are counted in UTC. Any check can have a `message` that replaces the
 default one. `exists_in_system`, `custom`, `business_hours` and `in_list` with a `source` instead of `values` need
 data the service doesn't have; they are accepted with a warning and not enforced.
@@ -196,9 +206,9 @@ A `human_gate` rule makes the actions it names wait for a person's approval (lis
 
 ```yaml
 rules:
-  - tool: healthcare.billing.process_refund
-    condition: "amount > 500"
-    approval_role: billing_supervisor
+  - tool: travel.payments.refund
+    condition: "total > 1500"
+    approval_role: finance_lead
 ```
 
 When it applies, `CheckPolicy` denies the action with `suggested_action` `require_approval` and the rule's
@@ -206,7 +216,7 @@ When it applies, `CheckPolicy` denies the action with `suggested_action` `requir
 notifying, `timeout_hours` and `on_timeout` aren't part of the guardrails service yet.
 
 A `condition` compares an argument with a number, a quoted string or a boolean, using `==`, `!=`, `>`, `>=`, `<`
-or `<=`. Several comparisons can be joined with `and`, e.g. `procedure_category == 'surgical' and urgent == false`.
+or `<=`. Several comparisons can be joined with `and`, e.g. `cabin == 'first' and corporate == false`.
 If the condition needs an argument the call doesn't have, the gate applies: approval is the safe default.
 
 If an action also breaks another rule, the other rule's `suggested_action` comes first, since approval can't fix it.

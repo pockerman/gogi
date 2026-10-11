@@ -24,7 +24,7 @@ spec:
         env:
         # policies as configuration: the YAML files of the gogi-guardrail-policies ConfigMap,
         # created with e.g.
-        #   kubectl -n gogi create configmap gogi-guardrail-policies --from-file=config/guardrails/
+        #   kubectl -n gogi create configmap gogi-guardrail-policies --from-file=<directory of policy files>
         - name: GOGI_GUARDRAILS_POLICY_DIR
           value: /etc/gogi/guardrails
         envFrom:

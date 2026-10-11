@@ -209,7 +209,7 @@ func contains(values []string, value string) bool {
 }
 
 // matchesAny returns true if name matches one of the patterns, e.g.
-// "healthcare.scheduling.*"; "*" matches everything
+// "travel.flights.*"; "*" matches everything
 func matchesAny(patterns []string, name string) bool {
 	for _, pattern := range patterns {
 		if pattern == "*" || pattern == name {

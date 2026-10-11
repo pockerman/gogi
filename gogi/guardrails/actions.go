@@ -171,7 +171,7 @@ func (r *toolRule) violations(arguments map[string]any, context map[string]strin
 	return failed
 }
 
-// lookup returns the value at a dotted path, e.g. patient.id
+// lookup returns the value at a dotted path, e.g. traveller.id
 func lookup(arguments map[string]any, field string) (any, bool) {
 	var current any = arguments
 	for _, part := range strings.Split(field, ".") {
@@ -554,7 +554,7 @@ func (r *gateRule) applies(action string, arguments map[string]any) (bool, strin
 	return true, fmt.Sprintf("%s needs the approval of a %s, as %s", action, r.ApprovalRole, r.Condition)
 }
 
-// comparison is a condition on an argument, e.g. amount > 500
+// comparison is a condition on an argument, e.g. total > 1500
 type comparison struct {
 	field    string
 	operator string
@@ -564,7 +564,7 @@ type comparison struct {
 var comparisonPattern = regexp.MustCompile(`^\s*([A-Za-z_][\w.]*)\s*(==|!=|>=|<=|>|<)\s*(.+?)\s*$`)
 
 // parseCondition parses comparisons of an argument with a number, a quoted string or a
-// boolean, joined with "and", e.g. amount > 500 and currency == 'USD'
+// boolean, joined with "and", e.g. total > 1500 and currency == 'EUR'
 func parseCondition(condition string) ([]comparison, error) {
 	comparisons := make([]comparison, 0)
 	for _, part := range regexp.MustCompile(`\s+and\s+`).Split(condition, -1) {
