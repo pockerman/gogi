@@ -1,5 +1,74 @@
 # Model service
 
+The model service (`llms`) runs language models for the platform, with one API whatever the provider behind a
+model. Applications, and other services such as the session service when it summarizes a conversation, call it
+rather than a provider's API. Retries, fallbacks, credentials and cost accounting then work the same for every
+model.
+
+| RPC                  | What it does                                                         |
+|----------------------|----------------------------------------------------------------------|
+| `Run`                | Runs a model and returns its whole response                          |
+| `RunStream`          | Runs a model and streams its response, token by token                |
+| `ListLLMs`           | Lists the models: the built-in providers' and the registered ones    |
+| `GetLLMProviders`    | Lists the providers, optionally with their models                    |
+| `GetLLMCapabilities` | Returns a model's context window and what it supports                |
+| `RegisterLLM`        | Registers a self-hosted model                                        |
+| `ListRegisteredLLMs` | Lists the registered models                                          |
+| `GetLLMStatus`       | Returns a registered model's health                                  |
+
+## Prompts
+
+The model service doesn't store, version or resolve prompts. Prompts belong to the
+[prompt service](prompt_service.md): an application fetches its prompt there and sends it to the model service as
+a message, usually the system message, with the parameters the prompt was tuned with.
+
+## Running a model
+
+A request names a `provider` and a `model`, and carries the `messages` of the conversation in the platform's
+message format. That format is the OpenAI chat format: a role, content, the tools an assistant message calls, and
+the call a tool message answers. Generation parameters such as `max_tokens`, `temperature` and `top_p` go in the
+request's config. The model service translates the request to the provider's API and the response back.
+
+- **Built-in providers:** `openai` and `anthropic`, with the API keys the service is configured with.
+- **Responses:** a response says which `provider` and `model` answered, which differ from the request's after a
+  fallback, along with the content, the finish reason, the token usage and any tool calls.
+- **Streaming:** `RunStream` streams the response in chunks, and the last chunk carries the finish reason, the usage
+  and the complete tool calls. Every chunk names the provider that answers.
+
+### Tools
+
+A request can give the model `tools`, as function definitions with JSON Schema parameters. The model's tool calls
+come back in the OpenAI format whatever the provider. The model service doesn't run them: the application executes
+them, usually through the [tool service](tool_service.md#tools-for-a-model), and runs the model again with the
+results as tool messages.
+
+## Registered models
+
+`RegisterLLM` adds a self-hosted model, e.g. one served by vLLM, TGI or Ollama, under a provider name of your
+choice. Once registered, it is run, listed and described like a built-in model, and every replica of the service
+can serve it.
+
+- **Endpoint and adapter:** a registration gives the model's `endpoint`, which includes the API version, e.g.
+  `http://vllm:8000/v1`. Its `adapter_type`, one of `openai`, `vllm`, `tgi` or `ollama`, says how to talk to it;
+  they all use the OpenAI-compatible API.
+- **Capabilities:** the context window, and whether the model supports tools, vision, streaming and JSON mode.
+- **Health:** the service checks the endpoint's `health_check` path. `GetLLMStatus` reports `provisioning`,
+  `healthy` or `unhealthy`.
+- **Credentials:** a model that needs an API key names a credential in the platform's credential store with
+  `credential_ref`; the registration never holds the key itself. See [credentials](credentials.md).
+
+## Cost and telemetry
+
+Every call is recorded with the observability service as a generation, nested in the request's trace.
+
+- **What is recorded:** the provider and model that answered, the model asked for, the tokens, whether a fallback
+  answered, and the time to the first token of a stream.
+- **Cost:** priced from the platform's price table, which `GOGI_MODEL_PRICES_FILE` overrides and extends.
+- **Metrics and events:** the service also publishes request, error, fallback, token and cost metrics, and logs a
+  `model_fallback` event when another model answers.
+
+See [observability service](observability_service.md).
+
 ## Retries and fallback
 
 Calls to a provider fail: providers rate limit, get overloaded and have outages. The model
