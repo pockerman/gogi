@@ -292,7 +292,7 @@ func (provider *OpenAILLMModelProvider) RunStream(
 	}
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("openai: failed to read stream: %w", err)
+		return &ProviderError{Err: fmt.Errorf("openai: failed to read stream: %w", err)}
 	}
 
 	final := &gogiv1.LLMStreamChunkResponse{
@@ -327,7 +327,7 @@ func (provider *OpenAILLMModelProvider) doRequest(body []byte) (*http.Response, 
 
 	resp, err := provider.httpClient.Do(request)
 	if err != nil {
-		return nil, fmt.Errorf("openai: request failed: %w", err)
+		return nil, &ProviderError{Err: fmt.Errorf("openai: request failed: %w", err)}
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -341,14 +341,17 @@ func (provider *OpenAILLMModelProvider) doRequest(body []byte) (*http.Response, 
 func parseOpenAIError(resp *http.Response) error {
 
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
+	providerErr := &ProviderError{StatusCode: resp.StatusCode, RetryAfter: parseRetryAfter(resp.Header)}
 
 	var apiErr openAIErrorResponse
 	if err := json.Unmarshal(raw, &apiErr); err == nil && apiErr.Error.Message != "" {
-		return fmt.Errorf("openai: API error (status %d, type %s): %s",
+		providerErr.Err = fmt.Errorf("openai: API error (status %d, type %s): %s",
 			resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+		return providerErr
 	}
 
-	return fmt.Errorf("openai: API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	providerErr.Err = fmt.Errorf("openai: API error (status %d): %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	return providerErr
 }
 
 func (provider *OpenAILLMModelProvider) prepareHeaders(request *http.Request) error {

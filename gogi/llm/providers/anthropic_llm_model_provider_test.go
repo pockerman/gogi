@@ -2,6 +2,7 @@ package providers
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gogi/gogi/llm"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // anthropicTextStream is an SSE stream for a text-only response
@@ -217,5 +219,30 @@ func TestAnthropicRunStream(t *testing.T) {
 	// 3 input + 2 cache read prompt tokens, 4 output tokens
 	if final.GetUsage().GetPromptTokens() != 5 || final.GetUsage().GetTotalTokens() != 9 {
 		t.Errorf("wrong usage %+v", final.GetUsage())
+	}
+}
+
+func TestAnthropicOverloadedErrorIsRetryable(t *testing.T) {
+	requests := 0
+	provider := newTestAnthropicProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(529)
+		fmt.Fprint(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	})
+
+	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != 529 || providerErr.RetryAfter != 2*time.Second {
+		t.Fatalf("expected a retryable provider error, got %v", err)
+	}
+	if !IsRetryable(err) {
+		t.Errorf("an overloaded error should be retryable")
+	}
+	// the router retries; the SDK should not
+	if requests != 1 {
+		t.Errorf("expected 1 request, got %d", requests)
 	}
 }

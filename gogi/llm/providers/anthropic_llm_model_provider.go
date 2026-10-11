@@ -60,6 +60,8 @@ func (provider *AnthropicLLMModelProvider) buildClient() {
 	opts := []option.RequestOption{
 		option.WithAPIKey(provider.apiKey),
 		option.WithRequestTimeout(anthropicRequestTimeout),
+		// the provider router retries failed calls, and falls back to other models
+		option.WithMaxRetries(0),
 	}
 	if provider.baseURL != "" {
 		opts = append(opts, option.WithBaseURL(provider.baseURL))
@@ -189,10 +191,15 @@ func wrapAnthropicError(err error) error {
 
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
-		return fmt.Errorf("anthropic: API error (status %d): %w", apiErr.StatusCode, err)
+		providerErr := &ProviderError{StatusCode: apiErr.StatusCode,
+			Err: fmt.Errorf("anthropic: API error (status %d): %w", apiErr.StatusCode, err)}
+		if apiErr.Response != nil {
+			providerErr.RetryAfter = parseRetryAfter(apiErr.Response.Header)
+		}
+		return providerErr
 	}
 
-	return fmt.Errorf("anthropic: request failed: %w", err)
+	return &ProviderError{Err: fmt.Errorf("anthropic: request failed: %w", err)}
 }
 
 // anthropicToolCall maps a tool use block to a tool call in the platform's format

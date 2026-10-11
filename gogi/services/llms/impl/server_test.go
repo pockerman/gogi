@@ -476,3 +476,22 @@ func TestRunWithDeletedCredential(t *testing.T) {
 		t.Errorf("expected a credential error, got %v", err)
 	}
 }
+
+func TestRunErrorCodes(t *testing.T) {
+	providerError := func(code int) error {
+		return &providers.ProviderError{StatusCode: code, Err: fmt.Errorf("status %d", code)}
+	}
+	cases := map[error]codes.Code{
+		providerError(http.StatusTooManyRequests): codes.ResourceExhausted,
+		providerError(529):                        codes.Unavailable,
+		providerError(0):                          codes.Unavailable,
+		providerError(http.StatusUnauthorized):    codes.Internal,
+		&providers.FallbackError{Errors: []error{providerError(401), providerError(503)}}: codes.Unavailable,
+		fmt.Errorf("%w %q", providers.ErrUnknownProvider, "bedrock"):                      codes.InvalidArgument,
+	}
+	for err, code := range cases {
+		if got := status.Code(runError(err)); got != code {
+			t.Errorf("runError(%v): expected %s, got %s", err, code, got)
+		}
+	}
+}

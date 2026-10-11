@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,7 +107,7 @@ func TestRouterInvalidRequest(t *testing.T) {
 	router := NewLLMProviderRouter(map[string]ModelProvider{"openai": &fakeProvider{name: "openai"}})
 
 	request := toolRequest([]*gogiv1.LLMMessage{{Role: "user", Content: text("Hi")}}, functionTool("a.b", ""))
-	if _, err := router.Run(request); !errors.Is(err, ErrInvalidRequest) {
+	if _, err := router.Run(context.Background(), request); !errors.Is(err, ErrInvalidRequest) {
 		t.Errorf("expected an invalid request, got %v", err)
 	}
 	if err := router.RunStream(request, &fakeChunkStream{}); !errors.Is(err, ErrInvalidRequest) {

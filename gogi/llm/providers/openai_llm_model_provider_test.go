@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	gogiv1 "gogi/gogi/gogi/v1"
@@ -10,13 +11,19 @@ import (
 	"strings"
 	"testing"
 
+	"errors"
 	"google.golang.org/grpc"
+	"time"
 )
 
 // fakeChunkStream collects the chunks sent by RunStream
 type fakeChunkStream struct {
 	grpc.ServerStream
 	chunks []*gogiv1.LLMStreamChunkResponse
+}
+
+func (s *fakeChunkStream) Context() context.Context {
+	return context.Background()
 }
 
 func (s *fakeChunkStream) Send(chunk *gogiv1.LLMStreamChunkResponse) error {
@@ -261,5 +268,33 @@ func TestOpenAIRunStream(t *testing.T) {
 	}
 	if final.GetUsage().GetTotalTokens() != 5 {
 		t.Errorf("wrong usage %+v", final.GetUsage())
+	}
+}
+
+func TestOpenAIRateLimitErrorIsRetryable(t *testing.T) {
+	provider := newTestOpenAIProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("retry-after-ms", "250")
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprint(w, `{"error": {"message": "Rate limit reached", "type": "requests"}}`)
+	})
+
+	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusTooManyRequests ||
+		providerErr.RetryAfter != 250*time.Millisecond || !IsRetryable(err) {
+		t.Errorf("expected a retryable provider error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "Rate limit reached") {
+		t.Errorf("the error should keep the API's message, got %v", err)
+	}
+}
+
+func TestOpenAINetworkErrorIsRetryable(t *testing.T) {
+	provider := NewOpenAILLMModelProvider("test-key")
+	provider.SetBaseURL("http://127.0.0.1:1")
+
+	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
+	if !IsRetryable(err) {
+		t.Errorf("a network error should be retryable, got %v", err)
 	}
 }

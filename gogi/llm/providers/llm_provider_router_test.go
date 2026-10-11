@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	gogiv1 "gogi/gogi/gogi/v1"
@@ -35,7 +36,7 @@ func runRequest(provider, model string) *gogiv1.LLMRunRequest {
 func TestRouterBuiltinProvider(t *testing.T) {
 	router := NewLLMProviderRouter(map[string]ModelProvider{"openai": &fakeProvider{name: "openai"}})
 
-	response, err := router.Run(runRequest("openai", "any-model"))
+	response, err := router.Run(context.Background(), runRequest("openai", "any-model"))
 	if err != nil || response.Provider != "openai" {
 		t.Errorf("wrong response %+v, %v", response, err)
 	}
@@ -47,7 +48,7 @@ func TestRouterBuiltinProvider(t *testing.T) {
 func TestRouterUnknownProvider(t *testing.T) {
 	router := NewLLMProviderRouter(map[string]ModelProvider{})
 
-	_, err := router.Run(runRequest("ollama", "llama3.2"))
+	_, err := router.Run(context.Background(), runRequest("ollama", "llama3.2"))
 	if !errors.Is(err, ErrUnknownProvider) {
 		t.Errorf("expected ErrUnknownProvider, got %v", err)
 	}
@@ -57,7 +58,7 @@ func TestRouterRegisteredModel(t *testing.T) {
 	router := NewLLMProviderRouter(map[string]ModelProvider{})
 	router.RegisterModel("ollama", "llama3.2", &fakeProvider{name: "ollama"})
 
-	response, err := router.Run(runRequest("ollama", "llama3.2"))
+	response, err := router.Run(context.Background(), runRequest("ollama", "llama3.2"))
 	if err != nil || response.Provider != "ollama" {
 		t.Errorf("wrong response %+v, %v", response, err)
 	}
@@ -68,7 +69,7 @@ func TestRouterRegisteredModel(t *testing.T) {
 	}
 
 	// registered models are routed per (provider, model)
-	if _, err := router.Run(runRequest("ollama", "mistral")); !errors.Is(err, ErrUnknownProvider) {
+	if _, err := router.Run(context.Background(), runRequest("ollama", "mistral")); !errors.Is(err, ErrUnknownProvider) {
 		t.Errorf("expected ErrUnknownProvider for an unregistered model, got %v", err)
 	}
 }
@@ -86,7 +87,7 @@ func TestRouterResolver(t *testing.T) {
 	})
 
 	for i := 0; i < 2; i++ {
-		response, err := router.Run(runRequest("ollama", "llama3.2"))
+		response, err := router.Run(context.Background(), runRequest("ollama", "llama3.2"))
 		if err != nil || response.Provider != "ollama" {
 			t.Errorf("wrong response %+v, %v", response, err)
 		}
@@ -95,7 +96,7 @@ func TestRouterResolver(t *testing.T) {
 		t.Errorf("the resolved provider should be cached, resolver called %d times", calls)
 	}
 
-	if _, err := router.Run(runRequest("ollama", "mistral")); !errors.Is(err, ErrUnknownModel) {
+	if _, err := router.Run(context.Background(), runRequest("ollama", "mistral")); !errors.Is(err, ErrUnknownModel) {
 		t.Errorf("expected ErrUnknownModel, got %v", err)
 	}
 }
