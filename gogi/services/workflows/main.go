@@ -2,6 +2,7 @@ package main
 
 import (
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/observability"
 	"gogi/gogi/services/workflows/impl"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
@@ -40,7 +41,14 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	// every RPC gets a span, continuing the trace of the request
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
 	gogiv1.RegisterWorkflowServerServer(grpcServer, impl.NewWorkflowServer(pool))
 
 	// add the health server

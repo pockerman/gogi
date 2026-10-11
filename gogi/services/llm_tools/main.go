@@ -4,6 +4,7 @@ import (
 	"context"
 	"gogi/gogi/credentials"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/observability"
 	"gogi/gogi/services/llm_tools/impl"
 	"gogi/gogi/tools"
 
@@ -62,7 +63,14 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	// every RPC gets a span, continuing the trace of the request
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
 	gogiv1.RegisterToolServerServer(grpcServer, impl.NewToolServer(pool, credentialStore, breaker, executorConfig))
 
 	// add the health server

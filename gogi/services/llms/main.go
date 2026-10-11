@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"gogi/gogi/credentials"
+	"gogi/gogi/llm/pricing"
 	LLM_PROVIDERS "gogi/gogi/llm/providers"
+	"gogi/gogi/observability"
 	"gogi/gogi/services/llms/impl"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
@@ -99,9 +101,22 @@ func main() {
 		log.Infof("No credential store configured; registered models cannot reference credentials")
 	}
 
-	grpcServer := grpc.NewServer()
-	gogiv1.RegisterLLMModelServerServer(grpcServer, impl.NewLLMModelServer(chromaDBClient, pool, modelRouter,
-		credentialStore))
+	// every RPC gets a span, continuing the trace of the request
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
+	// the prices of the models, to put a cost on every call
+	prices, err := pricing.Load(utils.GetEnv("GOGI_MODEL_PRICES_FILE", ""))
+	if err != nil {
+		log.Fatalf("failed to load the model prices: %v", err)
+	}
+	modelServer := impl.NewLLMModelServer(chromaDBClient, pool, modelRouter, credentialStore)
+	modelServer.SetTelemetry(telemetry, prices)
+	gogiv1.RegisterLLMModelServerServer(grpcServer, modelServer)
 
 	// add the health server
 	healthServer := health.NewServer()

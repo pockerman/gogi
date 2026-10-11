@@ -7,7 +7,9 @@ import (
 	"gogi/gogi/credentials"
 	gogiv1 "gogi/gogi/gogi/v1"
 	LLM "gogi/gogi/llm"
+	"gogi/gogi/llm/pricing"
 	"gogi/gogi/llm/providers"
+	"gogi/gogi/observability"
 	"gogi/gogi/utils"
 	"net/http"
 	"net/url"
@@ -128,6 +130,9 @@ type LLMModelServer struct {
 	// credentialStore holds the credentials of registered models; nil if none is configured
 	credentialStore credentials.CredentialStore
 	healthClient    *http.Client
+	// telemetry records a generation per call; nil if telemetry is off
+	telemetry *observability.Client
+	prices    *pricing.Table
 }
 
 func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool,
@@ -216,18 +221,26 @@ func (s *LLMModelServer) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (*g
 	Log.Infof("Using provider %s", req.GetConfig().GetProvider())
 
 	// the request should specify the model and the provider
+	generation := s.startGeneration(ctx, req, "llms.generate")
 	response, err := s.providerRouter.Run(ctx, req)
 	if err != nil {
+		s.endGeneration(ctx, generation, req, "", "", nil, err)
 		return nil, runError(err)
 	}
-	return toGRPCLLMRunResponse(response), nil
+	grpcResponse := toGRPCLLMRunResponse(response)
+	s.endGeneration(ctx, generation, req, response.Provider, response.Model, grpcResponse.GetUsage(), nil)
+	return grpcResponse, nil
 
 }
 
 func (s *LLMModelServer) RunStream(req *gogiv1.LLMRunRequest,
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
 
-	if err := s.providerRouter.RunStream(req, stream); err != nil {
+	generation := s.startGeneration(stream.Context(), req, "llms.generate")
+	metered := &meteredStream{ServerStreamingServer: stream, generation: generation}
+	err := s.providerRouter.RunStream(req, metered)
+	s.endGeneration(stream.Context(), generation, req, metered.provider, metered.model, metered.usage, err)
+	if err != nil {
 		return runError(err)
 	}
 	return nil

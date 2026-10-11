@@ -149,6 +149,7 @@ minikube image build -t gogi/prompts:latest -f docker/prompts.Dockerfile .
 minikube image build -t gogi/llm-sessions:latest -f docker/llm_sessions.Dockerfile .
 minikube image build -t gogi/llm-tools:latest -f docker/llm_tools.Dockerfile .
 minikube image build -t gogi/guardrails:latest -f docker/guardrails.Dockerfile .
+minikube image build -t gogi/observability:latest -f docker/observability.Dockerfile .
 minikube image build -t gogi/workflows:latest -f docker/workflows.Dockerfile .
 ```
 
@@ -203,6 +204,7 @@ kubectl apply -f k8/prompts/
 kubectl apply -f k8/llm-sessions/
 kubectl apply -f k8/llm-tools/
 kubectl apply -f k8/guardrails/
+kubectl apply -f k8/observability/
 kubectl apply -f k8/workflows/
 ```
 
@@ -257,6 +259,7 @@ The migrations create the following tables:
 | 000009 | Extends `gogi_tools` and `gogi_tool_tasks` (see [tool service](tool_service.md)) |
 | 000010 | `gogi_guardrail_policies`, `gogi_guardrail_evaluations`, `gogi_guardrail_violations` |
 | 000011 | Replaces the session tables of 000004 with `gogi_llm_sessions`, `gogi_llm_messages`, `gogi_llm_session_summaries`, `gogi_llm_memories` (see [session service](session_service.md)) |
+| 000012 | `obs_spans`, `obs_generations`, `obs_traces`, `obs_scores`, `obs_logs`, `obs_metric_points`, `obs_budget_alerts`, `obs_budget_notifications` (see [observability service](observability_service.md)) |
 
 ## Credentials for registered models
 

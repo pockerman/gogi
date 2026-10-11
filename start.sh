@@ -90,6 +90,7 @@ else
   minikube image build -t gogi/llm-sessions:latest -f docker/llm_sessions.Dockerfile .
   minikube image build -t gogi/llm-tools:latest -f docker/llm_tools.Dockerfile .
   minikube image build -t gogi/guardrails:latest -f docker/guardrails.Dockerfile .
+  minikube image build -t gogi/observability:latest -f docker/observability.Dockerfile .
   minikube image build -t gogi/workflows:latest -f docker/workflows.Dockerfile .
 fi
 
@@ -129,6 +130,7 @@ kubectl apply -f k8/prompts/
 kubectl apply -f k8/llm-sessions/
 kubectl apply -f k8/llm-tools/
 kubectl apply -f k8/guardrails/
+kubectl apply -f k8/observability/
 kubectl apply -f k8/workflows/
 
 echo "==> 8. Checking the deployment"
