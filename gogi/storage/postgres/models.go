@@ -25,34 +25,6 @@ type GogiIndex struct {
 	LastUpdatedAt time.Time
 }
 
-// LLM Sessions
-
-type LLMSession struct {
-	ID        string
-	UserID    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-type LLMMessage struct {
-	ID        string
-	SessionID string
-	Role      string
-	Content   *string
-	Name      *string
-	Timestamp int64
-	CreatedAt time.Time
-}
-
-type UserMemory struct {
-	ID        string
-	UserID    string
-	Key       string
-	Value     string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
 // Prompts
 
 type GogiPrompt struct {

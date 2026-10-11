@@ -3,6 +3,7 @@ package main
 import (
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/services/llm_sessions/impl"
+	"gogi/gogi/sessions"
 
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
@@ -10,6 +11,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/health"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
@@ -41,8 +43,30 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
+	config, assembler, summary, err := impl.ConfigFromEnv()
+	if err != nil {
+		log.Fatalf("invalid configuration: %v", err)
+	}
+	store := postgres.NewGogiLLMSessionRepository(pool)
+	assembler.Store = store
+
+	// summaries are written by a model of the model service
+	if summary.Model != "" {
+		llmsAddr := utils.GetEnv("GOGI_LLM_SERVICE_ADDR", "llms:50057")
+		conn, err := grpc.NewClient(llmsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			log.Fatalf("failed to connect to the model service at %s: %v", llmsAddr, err)
+		}
+		defer conn.Close()
+		assembler.Summarizer = &sessions.ModelSummarizer{Runner: gogiv1.NewLLMModelServerClient(conn),
+			Provider: summary.Provider, ModelID: summary.Model, Timeout: summary.Timeout}
+		log.Infof("Summaries are written by %s/%s", summary.Provider, summary.Model)
+	} else {
+		log.Infof("No summary model configured; the summarize strategy truncates instead")
+	}
+
 	grpcServer := grpc.NewServer()
-	gogiv1.RegisterLLMSessionServerServer(grpcServer, impl.NewLLMSessionServer(pool))
+	gogiv1.RegisterLLMSessionServerServer(grpcServer, impl.NewLLMSessionServer(store, assembler, config))
 
 	// add the health server
 	healthServer := health.NewServer()

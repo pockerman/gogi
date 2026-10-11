@@ -193,8 +193,14 @@ services:
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_LLMS_SESSION_PORT=:50059
+      # the model that summarizes long conversations, e.g. openai and gpt-4o-mini; without
+      # one, the summarize strategy truncates instead
+      - GOGI_SESSIONS_SUMMARY_PROVIDER=${GOGI_SESSIONS_SUMMARY_PROVIDER:-}
+      - GOGI_SESSIONS_SUMMARY_MODEL=${GOGI_SESSIONS_SUMMARY_MODEL:-}
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
     depends_on:
       - postgres
+      - llms
   llm-tools:
     build:
       context: .
