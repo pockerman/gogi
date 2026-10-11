@@ -148,6 +148,7 @@ minikube image build -t gogi/llms:latest -f docker/llms.Dockerfile .
 minikube image build -t gogi/prompts:latest -f docker/prompts.Dockerfile .
 minikube image build -t gogi/llm-sessions:latest -f docker/llm_sessions.Dockerfile .
 minikube image build -t gogi/llm-tools:latest -f docker/llm_tools.Dockerfile .
+minikube image build -t gogi/guardrails:latest -f docker/guardrails.Dockerfile .
 minikube image build -t gogi/workflows:latest -f docker/workflows.Dockerfile .
 ```
 
@@ -201,6 +202,7 @@ kubectl apply -f k8/llms/
 kubectl apply -f k8/prompts/
 kubectl apply -f k8/llm-sessions/
 kubectl apply -f k8/llm-tools/
+kubectl apply -f k8/guardrails/
 kubectl apply -f k8/workflows/
 ```
 

@@ -592,3 +592,37 @@ func (p *GenericGRPCProxy) ForwardCancelJob(ctx context.Context, req *gogiv1.Can
 	client := gogiv1.NewWorkflowServerClient(conn)
 	return client.CancelJob(ctx, req)
 }
+
+// ======= Guardrails ==========
+
+func (p *GenericGRPCProxy) ForwardValidateInput(ctx context.Context, req *gogiv1.ValidateInputRequest) (*gogiv1.ValidateInputResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.ValidateInput(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardFilterOutput(ctx context.Context, req *gogiv1.FilterOutputRequest) (*gogiv1.FilterOutputResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.FilterOutput(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardCheckPolicy(ctx context.Context, req *gogiv1.CheckPolicyRequest) (*gogiv1.CheckPolicyResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.CheckPolicy(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardReportViolation(ctx context.Context, req *gogiv1.ReportViolationRequest) (*gogiv1.ReportViolationResponse, error) {
+	conn, _ := p.buildConnection("guardrails")
+	defer conn.Close()
+
+	client := gogiv1.NewGuardrailsServiceClient(conn)
+	return client.ReportViolation(ctx, req)
+}

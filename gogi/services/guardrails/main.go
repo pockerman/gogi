@@ -1,0 +1,69 @@
+package main
+
+import (
+	"context"
+	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/services/guardrails/impl"
+
+	"gogi/gogi/storage/postgres"
+	"gogi/gogi/utils"
+	"net"
+
+	log "github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
+)
+
+func main() {
+
+	const SERVICE_NAME string = "guardrails"
+
+	PORT := utils.GetEnv("GOGI_GUARDRAILS_PORT", ":50061")
+	PROTOCOL := utils.GetEnv("GOGI_GUARDRAILS_PROTOCOL", "tcp")
+
+	// initialize the logger for the platform
+	utils.InitLogger()
+
+	// 2. Connect to the DB
+	pool, err := postgres.NewPool(
+		utils.GetDatabaseURL(),
+	)
+
+	if err != nil {
+		log.Fatalf("failed to connect to postgres: %v", err)
+	}
+
+	// services do not create the tables. The API service does
+	defer pool.Close()
+
+	lis, err := net.Listen(PROTOCOL, PORT)
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
+
+	store := postgres.NewGogiGuardrailsRepository(pool)
+
+	// policies as configuration (listing 6.26): the YAML files of the policy directory are
+	// loaded on start, and replace the policies with the same names
+	if dir := utils.GetEnv("GOGI_GUARDRAILS_POLICY_DIR", ""); dir != "" {
+		loaded, err := impl.LoadPolicyFiles(context.Background(), store, dir)
+		if err != nil {
+			log.Fatalf("failed to load the guardrail policies of %s: %v", dir, err)
+		}
+		log.Infof("Loaded %d guardrail policies from %s", loaded, dir)
+	}
+
+	grpcServer := grpc.NewServer()
+	gogiv1.RegisterGuardrailsServiceServer(grpcServer, impl.NewGuardrailsServer(store))
+
+	// add the health server
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
+
+	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
+}

@@ -38,6 +38,9 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 
 	llm_tools_addr := utils.GetEnv("GOGI_LLM_TOOLS_SERVICE_ADDR", "llm-tools:50060")
 	registry.RegisterService("llm-tools", llm_tools_addr)
+
+	guardrails_addr := utils.GetEnv("GOGI_GUARDRAILS_SERVICE_ADDR", "guardrails:50061")
+	registry.RegisterService("guardrails", guardrails_addr)
 }
 
 func main() {

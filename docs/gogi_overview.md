@@ -53,6 +53,14 @@ The tool service manages tools as platform entities: a registry with namespaces 
 capability, and execution with injected credentials, rate and execution limits and circuit breakers. It also
 imports the tools of MCP servers. See [tool service](tool_service.md).
 
+### Guardrails service
+
+The guardrails service checks content and actions against named policies: input policies before a message
+reaches a model, output policies that redact or block a response before it reaches a user, and tool validation,
+behavioural and human approval policies before an action runs. Policies are added through the API or loaded from
+YAML files, can run in shadow mode, and every evaluation is recorded for audit. See
+[guardrails service](guardrails_service.md).
+
 ### Session service
 
 The Session Service provides conversation memory: the ability to remember what's been said so that follow-up questions make sense and the assistant can reference earlier parts of the conversation. A session represents a conversation between a user and an AI application. At minimum, it needs to track who the conversation belongs to, when it started, and what's been said.
