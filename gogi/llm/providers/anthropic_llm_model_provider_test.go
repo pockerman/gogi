@@ -1,7 +1,9 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gogi/gogi/llm"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 // anthropicTextStream is an SSE stream for a text-only response
@@ -149,7 +152,7 @@ func TestAnthropicPreparePayloadUnknownRole(t *testing.T) {
 func TestAnthropicRun(t *testing.T) {
 	provider := newTestAnthropicProvider(t, serveAnthropicStream(t, anthropicToolStream))
 
-	response, err := provider.Run([]llm.LLMMessage{{Role: "user", Content: "Hello"}},
+	response, err := provider.Run(context.Background(), []llm.LLMMessage{{Role: "user", Content: "Hello"}},
 		llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +190,7 @@ func TestAnthropicRunAPIError(t *testing.T) {
 		fmt.Fprint(w, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`)
 	})
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
 	if err == nil || !strings.Contains(err.Error(), "status 401") {
 		t.Errorf("expected API error, got %v", err)
 	}
@@ -217,5 +220,30 @@ func TestAnthropicRunStream(t *testing.T) {
 	// 3 input + 2 cache read prompt tokens, 4 output tokens
 	if final.GetUsage().GetPromptTokens() != 5 || final.GetUsage().GetTotalTokens() != 9 {
 		t.Errorf("wrong usage %+v", final.GetUsage())
+	}
+}
+
+func TestAnthropicOverloadedErrorIsRetryable(t *testing.T) {
+	requests := 0
+	provider := newTestAnthropicProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		io.Copy(io.Discard, r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", "2")
+		w.WriteHeader(529)
+		fmt.Fprint(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
+	})
+
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
+	var providerErr *ProviderError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != 529 || providerErr.RetryAfter != 2*time.Second {
+		t.Fatalf("expected a retryable provider error, got %v", err)
+	}
+	if !IsRetryable(err) {
+		t.Errorf("an overloaded error should be retryable")
+	}
+	// the router retries; the SDK should not
+	if requests != 1 {
+		t.Errorf("expected 1 request, got %d", requests)
 	}
 }

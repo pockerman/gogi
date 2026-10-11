@@ -74,6 +74,22 @@ func main() {
 
 	modelRouter := buildModelRouterProvider()
 
+	// how failed calls are retried, and the models they fall back to by default
+	resilienceConfig, err := LLM_PROVIDERS.ResilienceConfigFromEnv()
+	if err != nil {
+		log.Fatalf("failed to read the resilience configuration: %v", err)
+	}
+	modelRouter.SetResilienceConfig(resilienceConfig)
+	log.Infof("Retrying failed model calls up to %d times; default fallback models: %v",
+		resilienceConfig.Retry.MaxRetries, resilienceConfig.Fallback)
+
+	// stops calling models that keep failing, so requests fall back without waiting
+	breaker, err := utils.NewCircuitBreakerFromEnv("GOGI_LLM")
+	if err != nil {
+		log.Fatalf("failed to create the circuit breaker: %v", err)
+	}
+	modelRouter.SetCircuitBreaker(breaker)
+
 	// the credentials of registered models, e.g. in AWS Secrets Manager or HashiCorp Vault
 	credentialStore, err := credentials.NewCredentialStoreFromEnv(context.Background())
 	if err != nil {

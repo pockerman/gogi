@@ -53,7 +53,7 @@ func main() {
 		log.Infof("No credential store configured; tools cannot reference credentials")
 	}
 
-	breaker, err := tools.NewCircuitBreakerFromEnv()
+	breaker, err := utils.NewCircuitBreakerFromEnv("GOGI_TOOLS")
 	if err != nil {
 		log.Fatalf("%v", err)
 	}

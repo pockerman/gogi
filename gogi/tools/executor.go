@@ -95,14 +95,14 @@ type Result struct {
 // by the tool's timeout and response size, and retries failed calls to idempotent tools
 type Executor struct {
 	credentialStore credentials.CredentialStore
-	breaker         *CircuitBreaker
+	breaker         *utils.CircuitBreaker
 	limiter         *RateLimiter
 	httpAdapter     Adapter
 	mcpAdapter      Adapter
 	config          ExecutorConfig
 }
 
-func NewExecutor(credentialStore credentials.CredentialStore, breaker *CircuitBreaker, limiter *RateLimiter,
+func NewExecutor(credentialStore credentials.CredentialStore, breaker *utils.CircuitBreaker, limiter *RateLimiter,
 	httpAdapter, mcpAdapter Adapter, config ExecutorConfig) *Executor {
 	return &Executor{
 		credentialStore: credentialStore,
@@ -121,7 +121,7 @@ func CircuitKey(tool *postgres.GogiTool) string {
 
 // Available reports whether the tool's circuit lets calls through
 func (e *Executor) Available(tool *postgres.GogiTool) bool {
-	return e.breaker.State(CircuitKey(tool)) != CircuitOpen
+	return e.breaker.State(CircuitKey(tool)) != utils.CircuitOpen
 }
 
 func failed(start time.Time, format string, args ...any) Result {

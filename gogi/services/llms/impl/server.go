@@ -103,6 +103,19 @@ func runError(err error) error {
 	if _, ok := status.FromError(err); ok {
 		return err
 	}
+	// the provider, not the caller, is at fault; say whether trying again later may help
+	if errors.Is(err, providers.ErrCircuitOpen) {
+		return status.Errorf(codes.Unavailable, "%v", err)
+	}
+	var providerErr *providers.ProviderError
+	if errors.As(err, &providerErr) {
+		if providerErr.StatusCode == http.StatusTooManyRequests {
+			return status.Errorf(codes.ResourceExhausted, "%v", err)
+		}
+		if providers.IsRetryable(err) {
+			return status.Errorf(codes.Unavailable, "%v", err)
+		}
+	}
 	return status.Errorf(codes.Internal, "%v", err)
 }
 
@@ -203,7 +216,7 @@ func (s *LLMModelServer) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (*g
 	Log.Infof("Using provider %s", req.GetConfig().GetProvider())
 
 	// the request should specify the model and the provider
-	response, err := s.providerRouter.Run(req)
+	response, err := s.providerRouter.Run(ctx, req)
 	if err != nil {
 		return nil, runError(err)
 	}

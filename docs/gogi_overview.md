@@ -34,6 +34,9 @@ A request can give the model tools to call. The model's tool calls are returned 
 format whatever the provider, and the application runs them with the tool service; see
 [tools for a model](tool_service.md#tools-for-a-model).
 
+Failed calls to a model are retried and, if the model keeps failing, can fall back to other
+models; see [retries and fallback](model_service.md#retries-and-fallback).
+
 
 ---
 **Remark: OpenAI message format as platform standard**

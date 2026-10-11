@@ -60,6 +60,8 @@ func (provider *AnthropicLLMModelProvider) buildClient() {
 	opts := []option.RequestOption{
 		option.WithAPIKey(provider.apiKey),
 		option.WithRequestTimeout(anthropicRequestTimeout),
+		// the provider router retries failed calls, and falls back to other models
+		option.WithMaxRetries(0),
 	}
 	if provider.baseURL != "" {
 		opts = append(opts, option.WithBaseURL(provider.baseURL))
@@ -69,10 +71,10 @@ func (provider *AnthropicLLMModelProvider) buildClient() {
 
 // Run returns the complete response. The request is streamed under the
 // hood and accumulated, so large max_tokens values do not hit HTTP timeouts
-func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
+func (provider *AnthropicLLMModelProvider) Run(ctx context.Context, messages []llm.LLMMessage,
 	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 
-	message, err := provider.streamMessage(messages, config, nil)
+	message, err := provider.streamMessage(ctx, messages, config, nil)
 	if err != nil {
 		return llm.LLModelResponse{}, err
 	}
@@ -108,7 +110,7 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 ) error {
 
 	model := config.ModelName
-	message, err := provider.streamMessage(messages, config, func(text string) error {
+	message, err := provider.streamMessage(stream.Context(), messages, config, func(text string) error {
 		return stream.Send(&gogiv1.LLMStreamChunkResponse{
 			Token: text,
 			Model: model,
@@ -141,8 +143,9 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 }
 
 // streamMessage sends a streaming Messages API request, calls onText for
-// every text delta (if not nil) and returns the accumulated message
-func (provider *AnthropicLLMModelProvider) streamMessage(messages []llm.LLMMessage,
+// every text delta (if not nil) and returns the accumulated message. Every event
+// tells the stall watchdog the call is alive
+func (provider *AnthropicLLMModelProvider) streamMessage(ctx context.Context, messages []llm.LLMMessage,
 	config llm.LLMModelConfig, onText func(string) error) (anthropic.Message, error) {
 
 	params, err := provider.preparePayload(messages, config)
@@ -150,11 +153,12 @@ func (provider *AnthropicLLMModelProvider) streamMessage(messages []llm.LLMMessa
 		return anthropic.Message{}, err
 	}
 
-	stream := provider.client.Messages.NewStreaming(context.Background(), params)
+	stream := provider.client.Messages.NewStreaming(ctx, params)
 	defer stream.Close()
 
 	message := anthropic.Message{}
 	for stream.Next() {
+		touch(ctx)
 		event := stream.Current()
 		if err := message.Accumulate(event); err != nil {
 			return anthropic.Message{}, fmt.Errorf("anthropic: failed to accumulate stream event: %w", err)
@@ -189,10 +193,15 @@ func wrapAnthropicError(err error) error {
 
 	var apiErr *anthropic.Error
 	if errors.As(err, &apiErr) {
-		return fmt.Errorf("anthropic: API error (status %d): %w", apiErr.StatusCode, err)
+		providerErr := &ProviderError{StatusCode: apiErr.StatusCode,
+			Err: fmt.Errorf("anthropic: API error (status %d): %w", apiErr.StatusCode, err)}
+		if apiErr.Response != nil {
+			providerErr.RetryAfter = parseRetryAfter(apiErr.Response.Header)
+		}
+		return providerErr
 	}
 
-	return fmt.Errorf("anthropic: request failed: %w", err)
+	return &ProviderError{Err: fmt.Errorf("anthropic: request failed: %w", err)}
 }
 
 // anthropicToolCall maps a tool use block to a tool call in the platform's format

@@ -69,7 +69,7 @@ type ToolServer struct {
 // NewToolServer creates the server. credentialStore holds the credentials of tools; it
 // is nil if none is configured, in which case tools cannot reference credentials
 func NewToolServer(dbClient *pgxpool.Pool, credentialStore credentials.CredentialStore,
-	breaker *tools.CircuitBreaker, config tools.ExecutorConfig) *ToolServer {
+	breaker *utils.CircuitBreaker, config tools.ExecutorConfig) *ToolServer {
 
 	httpClient := &http.Client{}
 	mcpAdapter := tools.NewMCPAdapter(httpClient)
