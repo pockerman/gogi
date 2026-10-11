@@ -154,53 +154,56 @@ func TestOpenAIAPIKeySource(t *testing.T) {
 	}
 }
 
-func TestOpenAICompatibleRun(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
+// serveOpenAIStream answers with the given server-sent events
+func serveOpenAIStream(t *testing.T, path string, events ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != path {
 			t.Errorf("wrong path %s", r.URL.Path)
 		}
-		fmt.Fprint(w, `{"model": "mistral", "choices": [{"message": {"content": "Hi"}, "finish_reason": "stop"}],
-			"usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}`)
-	}))
+		var request openAIChatRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil || !request.Stream {
+			t.Errorf("expected a streaming request, got %+v, %v", request, err)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		for _, event := range events {
+			fmt.Fprintf(w, "data: %s\n\n", event)
+		}
+	}
+}
+
+func TestOpenAICompatibleRun(t *testing.T) {
+	server := httptest.NewServer(serveOpenAIStream(t, "/v1/chat/completions",
+		`{"model":"mistral","choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}`,
+		`{"model":"mistral","choices":[{"delta":{},"finish_reason":"stop"}]}`,
+		`[DONE]`))
 	t.Cleanup(server.Close)
 
 	provider := NewOpenAICompatibleLLMModelProvider("ollama", "", server.URL+"/v1")
-	response, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "mistral"})
+	response, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "mistral"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Provider != "ollama" || response.Content != "Hi" {
+	if response.Provider != "ollama" || response.Content != "Hi" || response.FinishReason != "stop" {
 		t.Errorf("wrong response %+v", response)
 	}
 }
 
 func TestOpenAIRun(t *testing.T) {
+	handler := serveOpenAIStream(t, openAIChatCompletionsPath,
+		`{"model":"gpt-4o-mini-2024-07-18","choices":[{"delta":{"role":"assistant","content":"Hi"},"finish_reason":null}]}`,
+		`{"model":"gpt-4o-mini-2024-07-18","choices":[{"delta":{"content":" there"},"finish_reason":null}]}`,
+		`{"model":"gpt-4o-mini-2024-07-18","choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"calendar","arguments":"{\"date\":\"2026-06-14\"}"}}]},"finish_reason":null}]}`,
+		`{"model":"gpt-4o-mini-2024-07-18","choices":[{"delta":{},"finish_reason":"tool_calls"}]}`,
+		`{"model":"gpt-4o-mini-2024-07-18","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+		`[DONE]`)
 	provider := newTestOpenAIProvider(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != openAIChatCompletionsPath {
-			t.Errorf("wrong path %s", r.URL.Path)
-		}
 		if r.Header.Get("Authorization") != "Bearer test-key" {
 			t.Errorf("wrong authorization header")
 		}
-		fmt.Fprint(w, `{
-			"model": "gpt-4o-mini-2024-07-18",
-			"choices": [{
-				"message": {
-					"role": "assistant",
-					"content": "Hi there",
-					"tool_calls": [{
-						"id": "call_1",
-						"type": "function",
-						"function": {"name": "calendar", "arguments": "{\"date\":\"2026-06-14\"}"}
-					}]
-				},
-				"finish_reason": "tool_calls"
-			}],
-			"usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12}
-		}`)
+		handler(w, r)
 	})
 
-	response, err := provider.Run([]llm.LLMMessage{{Role: "user", Content: "Hello"}},
+	response, err := provider.Run(context.Background(), []llm.LLMMessage{{Role: "user", Content: "Hello"}},
 		llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
 	if err != nil {
 		t.Fatal(err)
@@ -215,8 +218,70 @@ func TestOpenAIRun(t *testing.T) {
 	if response.TokenUsage != llm.NewTokenUsage(5, 7, 12) {
 		t.Errorf("wrong token usage %+v", response.TokenUsage)
 	}
-	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Function.Name != "calendar" {
+	if len(response.ToolCalls) != 1 || response.ToolCalls[0].Function.Name != "calendar" ||
+		response.ToolCalls[0].Function.Arguments != `{"date":"2026-06-14"}` {
 		t.Errorf("wrong tool calls %+v", response.ToolCalls)
+	}
+}
+
+func TestOpenAIRunWithoutStreaming(t *testing.T) {
+	// a server that ignores stream and answers with the whole response
+	provider := newTestOpenAIProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"model": "mistral", "choices": [{"message": {"content": "Hi", "tool_calls": [
+			{"id": "call_1", "type": "function", "function": {"name": "calendar", "arguments": "{}"}}]},
+			"finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}`)
+	})
+
+	response, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "mistral"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Content != "Hi" || response.FinishReason != "tool_calls" || response.TokenUsage.TotalTokens != 2 ||
+		len(response.ToolCalls) != 1 || response.ToolCalls[0].Id != "call_1" {
+		t.Errorf("wrong response %+v", response)
+	}
+
+	stream := &fakeChunkStream{}
+	if err := provider.RunStream(nil, llm.LLMModelConfig{ModelName: "mistral"}, stream); err != nil {
+		t.Fatal(err)
+	}
+	if len(stream.chunks) != 2 || stream.chunks[0].Token != "Hi" || len(stream.chunks[1].ToolCalls) != 1 {
+		t.Errorf("wrong chunks %+v", stream.chunks)
+	}
+}
+
+func TestOpenAIRunRefusal(t *testing.T) {
+	provider := newTestOpenAIProvider(t, serveOpenAIStream(t, openAIChatCompletionsPath,
+		`{"model":"gpt-4o","choices":[{"delta":{"refusal":"I can't help"},"finish_reason":null}]}`,
+		`{"model":"gpt-4o","choices":[{"delta":{"refusal":" with that."},"finish_reason":"stop"}]}`,
+		`[DONE]`))
+
+	response, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "gpt-4o"})
+	if err != nil || response.Content != "I can't help with that." {
+		t.Errorf("the refusal should be the content, got %+v, %v", response, err)
+	}
+}
+
+func TestOpenAIRunCancelled(t *testing.T) {
+	release := make(chan struct{})
+	provider := newTestOpenAIProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	})
+	defer close(release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err := provider.Run(ctx, nil, llm.LLMModelConfig{ModelName: "gpt-4o"})
+	if err == nil || time.Since(start) > 5*time.Second {
+		t.Errorf("a cancelled call should end, got %v after %s", err, time.Since(start))
 	}
 }
 
@@ -226,7 +291,7 @@ func TestOpenAIRunAPIError(t *testing.T) {
 		fmt.Fprint(w, `{"error": {"message": "Incorrect API key provided", "type": "invalid_request_error"}}`)
 	})
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
 	if err == nil || !strings.Contains(err.Error(), "Incorrect API key provided") {
 		t.Errorf("expected API error, got %v", err)
 	}
@@ -278,7 +343,7 @@ func TestOpenAIRateLimitErrorIsRetryable(t *testing.T) {
 		fmt.Fprint(w, `{"error": {"message": "Rate limit reached", "type": "requests"}}`)
 	})
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
 	var providerErr *ProviderError
 	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusTooManyRequests ||
 		providerErr.RetryAfter != 250*time.Millisecond || !IsRetryable(err) {
@@ -293,7 +358,7 @@ func TestOpenAINetworkErrorIsRetryable(t *testing.T) {
 	provider := NewOpenAILLMModelProvider("test-key")
 	provider.SetBaseURL("http://127.0.0.1:1")
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "gpt-4o-mini"})
 	if !IsRetryable(err) {
 		t.Errorf("a network error should be retryable, got %v", err)
 	}

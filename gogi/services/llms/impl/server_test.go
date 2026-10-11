@@ -488,6 +488,7 @@ func TestRunErrorCodes(t *testing.T) {
 		providerError(http.StatusUnauthorized):    codes.Internal,
 		&providers.FallbackError{Errors: []error{providerError(401), providerError(503)}}: codes.Unavailable,
 		fmt.Errorf("%w %q", providers.ErrUnknownProvider, "bedrock"):                      codes.InvalidArgument,
+		fmt.Errorf("%w for anthropic/claude-opus-5-5", providers.ErrCircuitOpen):          codes.Unavailable,
 	}
 	for err, code := range cases {
 		if got := status.Code(runError(err)); got != code {

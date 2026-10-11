@@ -9,6 +9,7 @@ import (
 
 	gogiv1 "gogi/gogi/gogi/v1"
 	LLM "gogi/gogi/llm"
+	"gogi/gogi/utils"
 
 	"fmt"
 
@@ -37,6 +38,8 @@ type LLMProviderRouter struct {
 	registered map[string]map[string]ModelProvider
 	resolver   ProviderResolver
 	resilience ResilienceConfig
+	// breaker stops calling models that keep failing; nil if none is set
+	breaker *utils.CircuitBreaker
 
 	// sleep waits between retries and jitter spreads the waits; replaced in tests
 	sleep  func(ctx context.Context, d time.Duration) error
@@ -51,6 +54,12 @@ func NewLLMProviderRouter(providers map[string]ModelProvider) *LLMProviderRouter
 		sleep:      sleep,
 		jitter:     equalJitter,
 	}
+}
+
+// SetCircuitBreaker sets the circuit breaker that stops calling models, by
+// provider/model, that keep failing; a request then falls back straight away
+func (p *LLMProviderRouter) SetCircuitBreaker(breaker *utils.CircuitBreaker) {
+	p.breaker = breaker
 }
 
 // SetResilienceConfig sets how failed calls are retried and which models they fall back to
@@ -156,12 +165,12 @@ func (p *LLMProviderRouter) Run(ctx context.Context, req *gogiv1.LLMRunRequest) 
 	}
 
 	var response LLM.LLModelResponse
-	err = p.callWithFallback(ctx, req, func(provider ModelProvider, model FallbackModel) error {
+	err = p.callWithFallback(ctx, req, func(ctx context.Context, provider ModelProvider, model FallbackModel) error {
 		modelConfig := config
 		modelConfig.ModelName = model.Model
 
 		var err error
-		response, err = provider.Run(messages, modelConfig)
+		response, err = provider.Run(ctx, messages, modelConfig)
 		return err
 	}, nil)
 
@@ -184,21 +193,28 @@ func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
 	}
 
 	providerStream := &providerChunkStream{ServerStreamingServer: stream}
-	return p.callWithFallback(stream.Context(), req, func(provider ModelProvider, model FallbackModel) error {
+	return p.callWithFallback(stream.Context(), req, func(ctx context.Context, provider ModelProvider,
+		model FallbackModel) error {
 		modelConfig := config
 		modelConfig.ModelName = model.Model
 
+		providerStream.ctx = ctx
 		providerStream.provider = model.Provider
 		return provider.RunStream(messages, modelConfig, providerStream)
 	}, func() bool { return providerStream.sent })
 }
 
 // providerChunkStream sets the provider of the chunks it sends and remembers
-// whether it sent any
+// whether it sent any. Its context is the one of the current call to the provider
 type providerChunkStream struct {
 	grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]
+	ctx      context.Context
 	provider string
 	sent     bool
+}
+
+func (s *providerChunkStream) Context() context.Context {
+	return s.ctx
 }
 
 func (s *providerChunkStream) Send(chunk *gogiv1.LLMStreamChunkResponse) error {

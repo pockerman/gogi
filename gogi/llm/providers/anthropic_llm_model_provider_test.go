@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -151,7 +152,7 @@ func TestAnthropicPreparePayloadUnknownRole(t *testing.T) {
 func TestAnthropicRun(t *testing.T) {
 	provider := newTestAnthropicProvider(t, serveAnthropicStream(t, anthropicToolStream))
 
-	response, err := provider.Run([]llm.LLMMessage{{Role: "user", Content: "Hello"}},
+	response, err := provider.Run(context.Background(), []llm.LLMMessage{{Role: "user", Content: "Hello"}},
 		llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
 	if err != nil {
 		t.Fatal(err)
@@ -189,7 +190,7 @@ func TestAnthropicRunAPIError(t *testing.T) {
 		fmt.Fprint(w, `{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}`)
 	})
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
 	if err == nil || !strings.Contains(err.Error(), "status 401") {
 		t.Errorf("expected API error, got %v", err)
 	}
@@ -233,7 +234,7 @@ func TestAnthropicOverloadedErrorIsRetryable(t *testing.T) {
 		fmt.Fprint(w, `{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}`)
 	})
 
-	_, err := provider.Run(nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
+	_, err := provider.Run(context.Background(), nil, llm.LLMModelConfig{ModelName: "claude-opus-5-5"})
 	var providerErr *ProviderError
 	if !errors.As(err, &providerErr) || providerErr.StatusCode != 529 || providerErr.RetryAfter != 2*time.Second {
 		t.Fatalf("expected a retryable provider error, got %v", err)

@@ -3,6 +3,7 @@ package providers
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -138,26 +139,13 @@ type openAIToolCallDelta struct {
 	Function openAIToolCallFunction `json:"function"`
 }
 
-// openAIChatResponse is the non-streaming Chat Completions response body
-type openAIChatResponse struct {
-	Model   string `json:"model"`
-	Choices []struct {
-		Message struct {
-			Content   *string          `json:"content"`
-			Refusal   *string          `json:"refusal"`
-			ToolCalls []openAIToolCall `json:"tool_calls"`
-		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage openAIUsage `json:"usage"`
-}
-
 // openAIChatChunk is a single server-sent event of a streamed response
 type openAIChatChunk struct {
 	Model   string `json:"model"`
 	Choices []struct {
 		Delta struct {
 			Content   string                `json:"content"`
+			Refusal   string                `json:"refusal"`
 			ToolCalls []openAIToolCallDelta `json:"tool_calls"`
 		} `json:"delta"`
 		FinishReason *string `json:"finish_reason"`
@@ -173,53 +161,29 @@ type openAIErrorResponse struct {
 	} `json:"error"`
 }
 
-func (provider *OpenAILLMModelProvider) Run(messages []llm.LLMMessage,
+// Run returns the complete response. The request is streamed under the hood and
+// accumulated, as for RunStream, so a call that stalls is noticed while the model
+// is still generating
+func (provider *OpenAILLMModelProvider) Run(ctx context.Context, messages []llm.LLMMessage,
 	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 
-	body, err := provider.preparePayload(messages, config, false)
+	result, err := provider.streamChat(ctx, messages, config, nil)
 	if err != nil {
 		return llm.LLModelResponse{}, err
 	}
 
-	resp, err := provider.doRequest(body)
-	if err != nil {
-		return llm.LLModelResponse{}, err
+	content := result.content.String()
+	if content == "" {
+		content = result.refusal.String()
 	}
-	defer resp.Body.Close()
-
-	var result openAIChatResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return llm.LLModelResponse{}, fmt.Errorf("openai: failed to decode response: %w", err)
-	}
-
-	if len(result.Choices) == 0 {
-		return llm.LLModelResponse{}, fmt.Errorf("openai: response contained no choices")
-	}
-
-	choice := result.Choices[0]
-	content := ""
-	if choice.Message.Content != nil {
-		content = *choice.Message.Content
-	} else if choice.Message.Refusal != nil {
-		content = *choice.Message.Refusal
-	}
-
-	toolCalls := make([]llm.LLMToolCall, 0, len(choice.Message.ToolCalls))
-	for _, call := range choice.Message.ToolCalls {
-		toolCalls = append(toolCalls,
-			*llm.NewLLMToolCall(call.Id, llm.ToolTypeFunction, call.Function.Name, call.Function.Arguments))
-	}
-
-	tokenUsage := llm.NewTokenUsage(result.Usage.PromptTokens,
-		result.Usage.CompletionTokens, result.Usage.TotalTokens)
 
 	response := llm.NewLLMModelResponse(
 		provider.Name(),
-		result.Model,
+		result.model,
 		content,
-		choice.FinishReason,
-		tokenUsage,
-		toolCalls,
+		result.finishReason,
+		result.tokenUsage(),
+		result.toolCalls.toolCalls(),
 	)
 
 	Log.Debugf("Provider response %+v", response)
@@ -232,26 +196,133 @@ func (provider *OpenAILLMModelProvider) RunStream(
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse],
 ) error {
 
-	body, err := provider.preparePayload(messages, config, true)
+	result, err := provider.streamChat(stream.Context(), messages, config, func(token, model string) error {
+		return stream.Send(&gogiv1.LLMStreamChunkResponse{
+			Token: token,
+			Model: model,
+		})
+	})
 	if err != nil {
 		return err
 	}
 
-	resp, err := provider.doRequest(body)
+	final := &gogiv1.LLMStreamChunkResponse{
+		Model:     result.model,
+		ToolCalls: ToGRPCToolCalls(result.toolCalls.toolCalls()),
+	}
+	if result.finishReason != "" {
+		final.FinishReason = &result.finishReason
+	}
+	if result.usage != nil {
+		usage := result.tokenUsage()
+		final.Usage = &gogiv1.TokenUsage{
+			PromptTokens:     int32(usage.PromptTokens),
+			CompletionTokens: int32(usage.CompletionTokens),
+			TotalTokens:      int32(usage.TotalTokens),
+		}
+	}
+
+	return stream.Send(final)
+}
+
+// openAIStreamResult is a streamed response, put together
+type openAIStreamResult struct {
+	model        string
+	content      strings.Builder
+	refusal      strings.Builder
+	finishReason string
+	usage        *openAIUsage
+	toolCalls    *openAIToolCallAccumulator
+}
+
+func (result *openAIStreamResult) tokenUsage() llm.TokenUsage {
+	if result.usage == nil {
+		return llm.TokenUsage{}
+	}
+	return llm.NewTokenUsage(result.usage.PromptTokens, result.usage.CompletionTokens, result.usage.TotalTokens)
+}
+
+// openAIChatResponse is the non-streaming Chat Completions response body
+type openAIChatResponse struct {
+	Model   string `json:"model"`
+	Choices []struct {
+		Message struct {
+			Content   *string          `json:"content"`
+			Refusal   *string          `json:"refusal"`
+			ToolCalls []openAIToolCall `json:"tool_calls"`
+		} `json:"message"`
+		FinishReason string `json:"finish_reason"`
+	} `json:"choices"`
+	Usage *openAIUsage `json:"usage"`
+}
+
+// decodeResponse puts together a non-streaming response
+func (result *openAIStreamResult) decodeResponse(body io.Reader) error {
+	var response openAIChatResponse
+	if err := json.NewDecoder(body).Decode(&response); err != nil {
+		return fmt.Errorf("openai: failed to decode response: %w", err)
+	}
+	if len(response.Choices) == 0 {
+		return fmt.Errorf("openai: response contained no choices")
+	}
+
+	if response.Model != "" {
+		result.model = response.Model
+	}
+	result.usage = response.Usage
+
+	choice := response.Choices[0]
+	result.finishReason = choice.FinishReason
+	if choice.Message.Content != nil {
+		result.content.WriteString(*choice.Message.Content)
+	}
+	if choice.Message.Refusal != nil {
+		result.refusal.WriteString(*choice.Message.Refusal)
+	}
+	for i, call := range choice.Message.ToolCalls {
+		result.toolCalls.add([]openAIToolCallDelta{{Index: i, Id: call.Id, Type: call.Type, Function: call.Function}})
+	}
+	return nil
+}
+
+// streamChat sends a streaming Chat Completions request, calls onToken for every
+// content delta (if not nil) and returns the accumulated response. Every line the
+// server sends, including keep-alive comments, tells the stall watchdog the call is alive
+func (provider *OpenAILLMModelProvider) streamChat(ctx context.Context, messages []llm.LLMMessage,
+	config llm.LLMModelConfig, onToken func(token, model string) error) (*openAIStreamResult, error) {
+
+	body, err := provider.preparePayload(messages, config, true)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	resp, err := provider.doRequest(ctx, body)
+	if err != nil {
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	model := config.ModelName
-	var finishReason *string
-	var usage *openAIUsage
-	toolCalls := newOpenAIToolCallAccumulator()
+	result := &openAIStreamResult{model: config.ModelName, toolCalls: newOpenAIToolCallAccumulator()}
+
+	// some OpenAI-compatible servers ignore stream and answer with the whole response
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		if err := result.decodeResponse(resp.Body); err != nil {
+			return nil, err
+		}
+		if content := result.content.String(); onToken != nil && content != "" {
+			if err := onToken(content, result.model); err != nil {
+				return nil, err
+			}
+		}
+		return result, nil
+	}
 
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 
 	for scanner.Scan() {
+		touch(ctx)
+
 		line := scanner.Text()
 		if !strings.HasPrefix(line, "data:") {
 			continue
@@ -264,59 +335,46 @@ func (provider *OpenAILLMModelProvider) RunStream(
 
 		var chunk openAIChatChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			return fmt.Errorf("openai: failed to decode stream chunk: %w", err)
+			return nil, fmt.Errorf("openai: failed to decode stream chunk: %w", err)
 		}
 
 		if chunk.Model != "" {
-			model = chunk.Model
+			result.model = chunk.Model
 		}
 		if chunk.Usage != nil {
-			usage = chunk.Usage
+			result.usage = chunk.Usage
 		}
 
 		for _, choice := range chunk.Choices {
 			if choice.FinishReason != nil {
-				finishReason = choice.FinishReason
+				result.finishReason = *choice.FinishReason
 			}
-			toolCalls.add(choice.Delta.ToolCalls)
+			result.toolCalls.add(choice.Delta.ToolCalls)
+			result.refusal.WriteString(choice.Delta.Refusal)
 			if choice.Delta.Content == "" {
 				continue
 			}
-			if err := stream.Send(&gogiv1.LLMStreamChunkResponse{
-				Token: choice.Delta.Content,
-				Model: model,
-			}); err != nil {
-				return err
+			result.content.WriteString(choice.Delta.Content)
+			if onToken != nil {
+				if err := onToken(choice.Delta.Content, result.model); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
 
 	if err := scanner.Err(); err != nil {
-		return &ProviderError{Err: fmt.Errorf("openai: failed to read stream: %w", err)}
+		return nil, &ProviderError{Err: fmt.Errorf("openai: failed to read stream: %w", err)}
 	}
-
-	final := &gogiv1.LLMStreamChunkResponse{
-		Model:        model,
-		FinishReason: finishReason,
-		ToolCalls:    ToGRPCToolCalls(toolCalls.toolCalls()),
-	}
-	if usage != nil {
-		final.Usage = &gogiv1.TokenUsage{
-			PromptTokens:     int32(usage.PromptTokens),
-			CompletionTokens: int32(usage.CompletionTokens),
-			TotalTokens:      int32(usage.TotalTokens),
-		}
-	}
-
-	return stream.Send(final)
+	return result, nil
 }
 
 // doRequest sends the payload to the Chat Completions endpoint and
 // returns the response if the status is 200 OK
-func (provider *OpenAILLMModelProvider) doRequest(body []byte) (*http.Response, error) {
+func (provider *OpenAILLMModelProvider) doRequest(ctx context.Context, body []byte) (*http.Response, error) {
 
 	url := provider.baseURL + openAIChatCompletionsPath
-	request, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("openai: failed to create request: %w", err)
 	}

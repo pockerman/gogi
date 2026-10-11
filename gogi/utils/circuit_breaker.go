@@ -1,20 +1,19 @@
-package tools
+package utils
 
 import (
 	"fmt"
-	"gogi/gogi/utils"
 	"strconv"
 	"sync"
 	"time"
 )
 
-// CircuitState is the state of the circuit of a tool
+// CircuitState is the state of a circuit
 type CircuitState string
 
 const (
-	// CircuitClosed means the tool is healthy and calls go through
+	// CircuitClosed means the callee is healthy and calls go through
 	CircuitClosed CircuitState = "closed"
-	// CircuitOpen means the tool failed too often: calls fail immediately
+	// CircuitOpen means the callee failed too often: calls fail immediately
 	CircuitOpen CircuitState = "open"
 	// CircuitHalfOpen means the recovery timeout elapsed: a few trial calls go through
 	CircuitHalfOpen CircuitState = "half_open"
@@ -27,8 +26,9 @@ type circuit struct {
 	trialCalls          int
 }
 
-// CircuitBreaker tracks the failures of each tool and stops calling a tool that keeps
-// failing, so that the platform does not hammer an external system that is struggling.
+// CircuitBreaker tracks the failures of each callee, e.g. a tool or a model, by key, and
+// stops calling a callee that keeps failing, so that the platform does not hammer an
+// external system that is struggling, and callers do not wait for calls that will fail.
 // After failureThreshold consecutive failures the circuit opens; after recoveryTimeout
 // it lets halfOpenMax trial calls through, and closes again if one succeeds
 type CircuitBreaker struct {
@@ -59,7 +59,7 @@ func (b *CircuitBreaker) circuit(key string) *circuit {
 	return c
 }
 
-// AllowRequest reports whether a call to the tool may go ahead
+// AllowRequest reports whether a call to the callee may go ahead
 func (b *CircuitBreaker) AllowRequest(key string) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -81,7 +81,7 @@ func (b *CircuitBreaker) AllowRequest(key string) bool {
 	return true
 }
 
-// RecordResult records the outcome of a call to the tool
+// RecordResult records the outcome of a call to the callee
 func (b *CircuitBreaker) RecordResult(key string, success bool) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -99,7 +99,7 @@ func (b *CircuitBreaker) RecordResult(key string, success bool) {
 	}
 }
 
-// State returns the state of the circuit of the tool
+// State returns the state of the circuit of the callee
 func (b *CircuitBreaker) State(key string) CircuitState {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -115,21 +115,24 @@ func (b *CircuitBreaker) State(key string) CircuitState {
 }
 
 // NewCircuitBreakerFromEnv creates the circuit breaker configured by
-// GOGI_TOOLS_CIRCUIT_FAILURE_THRESHOLD (default 5 consecutive failures),
-// GOGI_TOOLS_CIRCUIT_RECOVERY_TIMEOUT (default 60s) and
-// GOGI_TOOLS_CIRCUIT_HALF_OPEN_MAX (default 2 trial calls)
-func NewCircuitBreakerFromEnv() (*CircuitBreaker, error) {
-	threshold, err := strconv.Atoi(utils.GetEnv("GOGI_TOOLS_CIRCUIT_FAILURE_THRESHOLD", "5"))
+// <prefix>_CIRCUIT_FAILURE_THRESHOLD (default 5 consecutive failures),
+// <prefix>_CIRCUIT_RECOVERY_TIMEOUT (default 60s) and
+// <prefix>_CIRCUIT_HALF_OPEN_MAX (default 2 trial calls), e.g. GOGI_TOOLS_CIRCUIT_FAILURE_THRESHOLD
+func NewCircuitBreakerFromEnv(prefix string) (*CircuitBreaker, error) {
+	thresholdName := prefix + "_CIRCUIT_FAILURE_THRESHOLD"
+	threshold, err := strconv.Atoi(GetEnv(thresholdName, "5"))
 	if err != nil || threshold < 1 {
-		return nil, fmt.Errorf("invalid GOGI_TOOLS_CIRCUIT_FAILURE_THRESHOLD: must be a positive integer")
+		return nil, fmt.Errorf("invalid %s: must be a positive integer", thresholdName)
 	}
-	recovery, err := time.ParseDuration(utils.GetEnv("GOGI_TOOLS_CIRCUIT_RECOVERY_TIMEOUT", "60s"))
+	recoveryName := prefix + "_CIRCUIT_RECOVERY_TIMEOUT"
+	recovery, err := time.ParseDuration(GetEnv(recoveryName, "60s"))
 	if err != nil || recovery <= 0 {
-		return nil, fmt.Errorf("invalid GOGI_TOOLS_CIRCUIT_RECOVERY_TIMEOUT: must be a positive duration")
+		return nil, fmt.Errorf("invalid %s: must be a positive duration", recoveryName)
 	}
-	halfOpenMax, err := strconv.Atoi(utils.GetEnv("GOGI_TOOLS_CIRCUIT_HALF_OPEN_MAX", "2"))
+	halfOpenName := prefix + "_CIRCUIT_HALF_OPEN_MAX"
+	halfOpenMax, err := strconv.Atoi(GetEnv(halfOpenName, "2"))
 	if err != nil || halfOpenMax < 1 {
-		return nil, fmt.Errorf("invalid GOGI_TOOLS_CIRCUIT_HALF_OPEN_MAX: must be a positive integer")
+		return nil, fmt.Errorf("invalid %s: must be a positive integer", halfOpenName)
 	}
 	return NewCircuitBreaker(threshold, recovery, halfOpenMax), nil
 }

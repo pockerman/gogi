@@ -71,10 +71,10 @@ func (provider *AnthropicLLMModelProvider) buildClient() {
 
 // Run returns the complete response. The request is streamed under the
 // hood and accumulated, so large max_tokens values do not hit HTTP timeouts
-func (provider *AnthropicLLMModelProvider) Run(messages []llm.LLMMessage,
+func (provider *AnthropicLLMModelProvider) Run(ctx context.Context, messages []llm.LLMMessage,
 	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 
-	message, err := provider.streamMessage(messages, config, nil)
+	message, err := provider.streamMessage(ctx, messages, config, nil)
 	if err != nil {
 		return llm.LLModelResponse{}, err
 	}
@@ -110,7 +110,7 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 ) error {
 
 	model := config.ModelName
-	message, err := provider.streamMessage(messages, config, func(text string) error {
+	message, err := provider.streamMessage(stream.Context(), messages, config, func(text string) error {
 		return stream.Send(&gogiv1.LLMStreamChunkResponse{
 			Token: text,
 			Model: model,
@@ -143,8 +143,9 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 }
 
 // streamMessage sends a streaming Messages API request, calls onText for
-// every text delta (if not nil) and returns the accumulated message
-func (provider *AnthropicLLMModelProvider) streamMessage(messages []llm.LLMMessage,
+// every text delta (if not nil) and returns the accumulated message. Every event
+// tells the stall watchdog the call is alive
+func (provider *AnthropicLLMModelProvider) streamMessage(ctx context.Context, messages []llm.LLMMessage,
 	config llm.LLMModelConfig, onText func(string) error) (anthropic.Message, error) {
 
 	params, err := provider.preparePayload(messages, config)
@@ -152,11 +153,12 @@ func (provider *AnthropicLLMModelProvider) streamMessage(messages []llm.LLMMessa
 		return anthropic.Message{}, err
 	}
 
-	stream := provider.client.Messages.NewStreaming(context.Background(), params)
+	stream := provider.client.Messages.NewStreaming(ctx, params)
 	defer stream.Close()
 
 	message := anthropic.Message{}
 	for stream.Next() {
+		touch(ctx)
 		event := stream.Current()
 		if err := message.Accumulate(event); err != nil {
 			return anthropic.Message{}, fmt.Errorf("anthropic: failed to accumulate stream event: %w", err)

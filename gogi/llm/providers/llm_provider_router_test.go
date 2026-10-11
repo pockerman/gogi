@@ -16,7 +16,7 @@ type fakeProvider struct {
 	name string
 }
 
-func (p *fakeProvider) Run(messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error) {
+func (p *fakeProvider) Run(ctx context.Context, messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 	return llm.LLModelResponse{Provider: p.name, Model: config.ModelName}, nil
 }
 

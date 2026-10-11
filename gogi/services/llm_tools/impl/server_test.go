@@ -111,7 +111,7 @@ func newTestToolServer(t *testing.T, credentialStore credentials.CredentialStore
 	config := tools.DefaultExecutorConfig()
 	config.DefaultTimeout = 2 * time.Second
 	mcpAdapter := tools.NewMCPAdapter(nil)
-	executor := tools.NewExecutor(credentialStore, tools.NewCircuitBreaker(2, time.Minute, 1),
+	executor := tools.NewExecutor(credentialStore, utils.NewCircuitBreaker(2, time.Minute, 1),
 		tools.NewRateLimiter(), tools.NewHTTPAdapter(nil), mcpAdapter, config)
 	return newToolServer(newMemoryToolStore(), executor, credentialStore, mcpAdapter)
 }

@@ -19,6 +19,14 @@ import (
 // maxFallbackModels is the most models a request may fall back to
 const maxFallbackModels = 5
 
+var (
+	// ErrCircuitOpen is returned for a model that failed too often recently: it is not
+	// called until its circuit breaker's recovery timeout elapses
+	ErrCircuitOpen = errors.New("circuit open")
+	// errStalled is the cause of a call cancelled because its provider sent nothing
+	errStalled = errors.New("the provider stalled")
+)
+
 // ProviderError is an error returned by a provider: StatusCode is the HTTP status of
 // the provider's response, or 0 if there was no response, e.g. on a network error
 type ProviderError struct {
@@ -104,15 +112,19 @@ type ResilienceConfig struct {
 	// Fallback are the models tried, in order, if a request's model fails; empty
 	// means requests that do not name models to fall back to only retry
 	Fallback []FallbackModel
+	// StallTimeout is how long a provider may send nothing before the call is given
+	// up as stalled, and retried; 0 means calls are not watched
+	StallTimeout time.Duration
 }
 
 func DefaultResilienceConfig() ResilienceConfig {
-	return ResilienceConfig{Retry: utils.DefaultRetryConfig()}
+	return ResilienceConfig{Retry: utils.DefaultRetryConfig(), StallTimeout: 90 * time.Second}
 }
 
 // ResilienceConfigFromEnv reads the resilience configuration from the environment:
-// GOGI_LLM_MAX_RETRIES, GOGI_LLM_RETRY_INITIAL_DELAY and GOGI_LLM_RETRY_MAX_DELAY (Go
-// durations), and GOGI_LLM_FALLBACK_MODELS, a comma-separated list of provider/model
+// GOGI_LLM_MAX_RETRIES, GOGI_LLM_RETRY_INITIAL_DELAY, GOGI_LLM_RETRY_MAX_DELAY and
+// GOGI_LLM_STALL_TIMEOUT (Go durations), and GOGI_LLM_FALLBACK_MODELS, a
+// comma-separated list of provider/model
 func ResilienceConfigFromEnv() (ResilienceConfig, error) {
 	config := DefaultResilienceConfig()
 
@@ -125,6 +137,7 @@ func ResilienceConfigFromEnv() (ResilienceConfig, error) {
 	durations := map[string]*time.Duration{
 		"GOGI_LLM_RETRY_INITIAL_DELAY": &config.Retry.InitialDelay,
 		"GOGI_LLM_RETRY_MAX_DELAY":     &config.Retry.MaxDelay,
+		"GOGI_LLM_STALL_TIMEOUT":       &config.StallTimeout,
 	}
 	for name, value := range durations {
 		parsed, err := time.ParseDuration(utils.GetEnv(name, value.String()))
@@ -174,7 +187,7 @@ func (e *FallbackError) Error() string {
 	for _, err := range e.Errors {
 		messages = append(messages, err.Error())
 	}
-	return fmt.Sprintf("all %d models failed: %s", len(e.Errors), strings.Join(messages, "; "))
+	return fmt.Sprintf("every model tried failed: %s", strings.Join(messages, "; "))
 }
 
 func (e *FallbackError) Unwrap() error {
@@ -244,11 +257,12 @@ func containsModel(models []FallbackModel, model FallbackModel) bool {
 }
 
 // callWithFallback calls the requested model and, if it fails, the models to fall
-// back to, in order, until one succeeds. Calls are retried as the request says.
-// started, if not nil, returns true once part of the response reached the caller;
-// the call then cannot be retried or answered by another model
+// back to, in order, until one succeeds. Calls are retried as the request says, and
+// models whose circuit is open are skipped. call must make the call with the given
+// context. started, if not nil, returns true once part of the response reached the
+// caller; the call then cannot be retried or answered by another model
 func (p *LLMProviderRouter) callWithFallback(ctx context.Context, req *gogiv1.LLMRunRequest,
-	call func(provider ModelProvider, model FallbackModel) error, started func() bool) error {
+	call func(ctx context.Context, provider ModelProvider, model FallbackModel) error, started func() bool) error {
 
 	models, retry, err := p.plan(req)
 	if err != nil {
@@ -271,7 +285,19 @@ func (p *LLMProviderRouter) callWithFallback(ctx context.Context, req *gogiv1.LL
 			continue
 		}
 
-		err = p.callWithRetries(ctx, model, retry, func() error { return call(provider, model) }, started)
+		if p.breaker != nil && !p.breaker.AllowRequest(model.String()) {
+			err = fmt.Errorf("%w for %s: it failed too often recently", ErrCircuitOpen, model)
+		} else {
+			err = p.callWithRetries(ctx, model, retry, func(ctx context.Context) error {
+				return call(ctx, provider, model)
+			}, started)
+			// a model that answers, even with an error such as an invalid request, is healthy;
+			// a call the caller gave up on says nothing about the model
+			if p.breaker != nil && ctx.Err() == nil {
+				p.breaker.RecordResult(model.String(), !IsRetryable(err))
+			}
+		}
+
 		if err == nil {
 			if i > 0 {
 				log.Infof("model %s failed, %s answered", models[0], model)
@@ -296,10 +322,10 @@ func (p *LLMProviderRouter) callWithFallback(ctx context.Context, req *gogiv1.LL
 // callWithRetries calls the model, retrying failed calls as long as the error is
 // retryable and no part of the response reached the caller
 func (p *LLMProviderRouter) callWithRetries(ctx context.Context, model FallbackModel, retry utils.RetryConfig,
-	call func() error, started func() bool) error {
+	call func(ctx context.Context) error, started func() bool) error {
 
 	for attempt := 0; ; attempt++ {
-		err := call()
+		err := p.callWatched(ctx, model, call)
 		if err == nil || attempt >= retry.MaxRetries || !IsRetryable(err) || started() || ctx.Err() != nil {
 			return err
 		}
@@ -317,6 +343,56 @@ func (p *LLMProviderRouter) callWithRetries(ctx context.Context, model FallbackM
 		if p.sleep(ctx, delay) != nil {
 			return err
 		}
+	}
+}
+
+// callWatched makes a call that is cancelled if the provider sends nothing for the
+// stall timeout. A stalled call fails with a retryable error
+func (p *LLMProviderRouter) callWatched(ctx context.Context, model FallbackModel, call func(ctx context.Context) error) error {
+
+	p.mu.RLock()
+	timeout := p.resilience.StallTimeout
+	p.mu.RUnlock()
+
+	if timeout <= 0 {
+		return call(ctx)
+	}
+
+	callCtx, cancel := withStallTimeout(ctx, timeout)
+	defer cancel()
+
+	err := call(callCtx)
+	if err != nil && ctx.Err() == nil && errors.Is(context.Cause(callCtx), errStalled) {
+		return &ProviderError{Err: fmt.Errorf("model %s sent nothing for %s: %w", model, timeout, errStalled)}
+	}
+	return err
+}
+
+// stallWatchdog cancels a call whose provider sends nothing for its timeout
+type stallWatchdog struct {
+	timer   *time.Timer
+	timeout time.Duration
+}
+
+type stallWatchdogKey struct{}
+
+// withStallTimeout returns a context that is cancelled, with the cause errStalled, if
+// touch is not called with it for timeout
+func withStallTimeout(parent context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx, cancel := context.WithCancelCause(parent)
+	watchdog := &stallWatchdog{timeout: timeout}
+	watchdog.timer = time.AfterFunc(timeout, func() { cancel(errStalled) })
+
+	return context.WithValue(ctx, stallWatchdogKey{}, watchdog), func() {
+		watchdog.timer.Stop()
+		cancel(context.Canceled)
+	}
+}
+
+// touch tells the stall watchdog of the call, if any, that the provider sent something
+func touch(ctx context.Context) {
+	if watchdog, ok := ctx.Value(stallWatchdogKey{}).(*stallWatchdog); ok {
+		watchdog.timer.Reset(watchdog.timeout)
 	}
 }
 

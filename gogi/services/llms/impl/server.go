@@ -104,6 +104,9 @@ func runError(err error) error {
 		return err
 	}
 	// the provider, not the caller, is at fault; say whether trying again later may help
+	if errors.Is(err, providers.ErrCircuitOpen) {
+		return status.Errorf(codes.Unavailable, "%v", err)
+	}
 	var providerErr *providers.ProviderError
 	if errors.As(err, &providerErr) {
 		if providerErr.StatusCode == http.StatusTooManyRequests {

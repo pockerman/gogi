@@ -34,7 +34,7 @@ func (p *scriptedProvider) next(model string) error {
 	return err
 }
 
-func (p *scriptedProvider) Run(messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error) {
+func (p *scriptedProvider) Run(ctx context.Context, messages []llm.LLMMessage, config llm.LLMModelConfig) (llm.LLModelResponse, error) {
 	if err := p.next(config.ModelName); err != nil {
 		return llm.LLModelResponse{}, err
 	}
@@ -461,5 +461,162 @@ func TestEqualJitter(t *testing.T) {
 	}
 	if equalJitter(0) != 0 {
 		t.Errorf("no delay should stay no delay")
+	}
+}
+
+// stallingProvider sends nothing, until the call is cancelled, for its first stalls
+// calls; then it answers, sending something every beat for beats beats
+type stallingProvider struct {
+	stalls int
+	beats  int
+	beat   time.Duration
+	calls  int
+}
+
+func (p *stallingProvider) call(ctx context.Context) error {
+	p.calls++
+	if p.stalls > 0 {
+		p.stalls--
+		<-ctx.Done()
+		return &ProviderError{Err: fmt.Errorf("request failed: %w", ctx.Err())}
+	}
+	for range p.beats {
+		select {
+		case <-ctx.Done():
+			return &ProviderError{Err: ctx.Err()}
+		case <-time.After(p.beat):
+			touch(ctx)
+		}
+	}
+	return nil
+}
+
+func (p *stallingProvider) Run(ctx context.Context, messages []llm.LLMMessage,
+	config llm.LLMModelConfig) (llm.LLModelResponse, error) {
+	if err := p.call(ctx); err != nil {
+		return llm.LLModelResponse{}, err
+	}
+	return llm.LLModelResponse{Provider: "slow", Model: config.ModelName}, nil
+}
+
+func (p *stallingProvider) RunStream(messages []llm.LLMMessage, config llm.LLMModelConfig,
+	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
+	if err := p.call(stream.Context()); err != nil {
+		return err
+	}
+	return stream.Send(&gogiv1.LLMStreamChunkResponse{Token: "done"})
+}
+
+func (p *stallingProvider) EstimateCost(tokens []string, model string) (float64, error) {
+	return 0, nil
+}
+
+func stallConfig() ResilienceConfig {
+	config := testResilienceConfig()
+	config.StallTimeout = 30 * time.Millisecond
+	return config
+}
+
+func TestRouterRetriesStalledCalls(t *testing.T) {
+	slow := &stallingProvider{stalls: 1}
+	router, _ := newTestRouter(stallConfig(), map[string]ModelProvider{"slow": slow})
+
+	response, err := router.Run(context.Background(), runRequest("slow", "model"))
+	if err != nil || response.Provider != "slow" || slow.calls != 2 {
+		t.Errorf("expected the stalled call to be retried, got %+v, %v after %d calls", response, err, slow.calls)
+	}
+
+	// a stalled stream that sent nothing is retried as well
+	slow = &stallingProvider{stalls: 1}
+	router, _ = newTestRouter(stallConfig(), map[string]ModelProvider{"slow": slow})
+	stream := &fakeChunkStream{}
+	if err := router.RunStream(runRequest("slow", "model"), stream); err != nil || len(stream.chunks) != 1 {
+		t.Errorf("expected the stalled stream to be retried, got %v, %+v", err, stream.chunks)
+	}
+}
+
+func TestRouterStalledCallError(t *testing.T) {
+	slow := &stallingProvider{stalls: 10}
+	router, _ := newTestRouter(stallConfig(), map[string]ModelProvider{"slow": slow})
+
+	_, err := router.Run(context.Background(), runRequest("slow", "model"))
+	if !errors.Is(err, errStalled) || !IsRetryable(err) {
+		t.Errorf("expected a retryable stall error, got %v", err)
+	}
+	if slow.calls != 3 {
+		t.Errorf("expected 1 call and 2 retries, got %d calls", slow.calls)
+	}
+}
+
+func TestRouterDoesNotStopCallsThatKeepSending(t *testing.T) {
+	// takes 4 times the stall timeout, but sends something every third of it
+	slow := &stallingProvider{beats: 12, beat: 10 * time.Millisecond}
+	router, _ := newTestRouter(stallConfig(), map[string]ModelProvider{"slow": slow})
+
+	if _, err := router.Run(context.Background(), runRequest("slow", "model")); err != nil || slow.calls != 1 {
+		t.Errorf("a call that keeps sending should not be stopped, got %v after %d calls", err, slow.calls)
+	}
+}
+
+func TestRouterCancelledCallIsNotAStall(t *testing.T) {
+	slow := &stallingProvider{stalls: 1}
+	router, _ := newTestRouter(stallConfig(), map[string]ModelProvider{"slow": slow})
+	router.SetCircuitBreaker(utils.NewCircuitBreaker(1, time.Minute, 1))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	defer cancel()
+
+	_, err := router.Run(ctx, runRequest("slow", "model"))
+	if err == nil || errors.Is(err, errStalled) || slow.calls != 1 {
+		t.Errorf("expected the caller's cancellation, got %v after %d calls", err, slow.calls)
+	}
+	if router.breaker.State("slow/model") != utils.CircuitClosed {
+		t.Errorf("a call the caller gave up on should not count against the model")
+	}
+}
+
+func TestRouterCircuitBreaker(t *testing.T) {
+	anthropic := &scriptedProvider{name: "anthropic", errs: []error{statusError(503), statusError(503)}}
+	openai := &scriptedProvider{name: "openai"}
+	router, _ := newTestRouter(ResilienceConfig{Retry: utils.RetryConfig{}},
+		map[string]ModelProvider{"anthropic": anthropic, "openai": openai})
+	router.SetCircuitBreaker(utils.NewCircuitBreaker(2, time.Minute, 1))
+
+	for range 2 {
+		if _, err := router.Run(context.Background(), fallbackRequest(nil)); err == nil {
+			t.Fatal("expected an error")
+		}
+	}
+
+	// the circuit is open: the model is not called
+	_, err := router.Run(context.Background(), fallbackRequest(nil))
+	if !errors.Is(err, ErrCircuitOpen) || len(anthropic.models) != 2 {
+		t.Errorf("expected ErrCircuitOpen without a call, got %v after %d calls", err, len(anthropic.models))
+	}
+
+	// and requests fall back straight away
+	response, err := router.Run(context.Background(), fallbackRequest(toGPT4o()))
+	if err != nil || response.Provider != "openai" || len(anthropic.models) != 2 {
+		t.Errorf("expected openai to answer straight away, got %+v, %v", response, err)
+	}
+
+	// circuits are per model
+	if _, err := router.Run(context.Background(), runRequest("anthropic", "claude-haiku-4-5")); err != nil {
+		t.Errorf("another model of the provider should be called, got %v", err)
+	}
+}
+
+func TestRouterCircuitBreakerIgnoresCallerErrors(t *testing.T) {
+	anthropic := &scriptedProvider{name: "anthropic",
+		errs: []error{statusError(401), statusError(400), invalidRequest("bad tool")}}
+	router, _ := newTestRouter(ResilienceConfig{Retry: utils.RetryConfig{}},
+		map[string]ModelProvider{"anthropic": anthropic})
+	router.SetCircuitBreaker(utils.NewCircuitBreaker(2, time.Minute, 1))
+
+	for range 3 {
+		_, _ = router.Run(context.Background(), fallbackRequest(nil))
+	}
+	if router.breaker.State("anthropic/claude-sonnet-5-5") != utils.CircuitClosed {
+		t.Errorf("a model that answers with an error is healthy")
 	}
 }
