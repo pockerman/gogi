@@ -255,6 +255,8 @@ The migrations create the following tables:
 | 000007 | `gogi_workflows`, `gogi_workflow_deployments`, `gogi_routes`, `gogi_workflow_jobs` |
 | 000008 | `gogi_registered_llms` |
 | 000009 | Extends `gogi_tools` and `gogi_tool_tasks` (see [tool service](tool_service.md)) |
+| 000010 | `gogi_guardrail_policies`, `gogi_guardrail_evaluations`, `gogi_guardrail_violations` |
+| 000011 | Replaces the session tables of 000004 with `gogi_llm_sessions`, `gogi_llm_messages`, `gogi_llm_session_summaries`, `gogi_llm_memories` (see [session service](session_service.md)) |
 
 ## Credentials for registered models
 

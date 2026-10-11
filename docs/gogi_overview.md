@@ -63,7 +63,10 @@ YAML files, can run in shadow mode, and every evaluation is recorded for audit. 
 
 ### Session service
 
-The Session Service provides conversation memory: the ability to remember what's been said so that follow-up questions make sense and the assistant can reference earlier parts of the conversation. A session represents a conversation between a user and an AI application. At minimum, it needs to track who the conversation belongs to, when it started, and what's been said.
+The session service keeps users' conversations: sessions, their messages with tool calls and results, and the
+facts saved about each user as memories. For the next model call it assembles a long conversation into a token
+budget, by truncating it, summarizing its older part, or putting the user's memories first. See
+[session service](session_service.md).
 
 
 
