@@ -62,6 +62,7 @@ services:
       - "8080:8080"
       - "50051:50051"
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_GATEWAY_PORT=:50051
       - GOGI_GATEWAY_PROTOCOL=tcp
       - GOGI_LOG_LEVEL=debug
@@ -75,6 +76,7 @@ services:
       - GOGI_LLM_SESSIONS_ADDR=llm-sessions:50059
       - GOGI_LLM_TOOLS_SERVICE_ADDR=llm-tools:50060
       - GOGI_GUARDRAILS_SERVICE_ADDR=guardrails:50061
+      - GOGI_OBSERVABILITY_SERVICE_ADDR=observability:50062
       - GOGI_VECTOR_DB_SERVICE_ADDR=vector-db:50059 # TODO Fix this
     depends_on:
       - documents
@@ -147,6 +149,7 @@ services:
       dockerfile: docker/llms.Dockerfile
     container_name: gogi-llms
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
@@ -174,6 +177,7 @@ services:
       dockerfile: docker/prompts.Dockerfile
     container_name: gogi-prompts
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
@@ -189,6 +193,7 @@ services:
       dockerfile: docker/llm_sessions.Dockerfile
     container_name: gogi-llm-sessions
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
@@ -207,6 +212,7 @@ services:
       dockerfile: docker/llm_tools.Dockerfile
     container_name: gogi-llm-tools
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
@@ -232,10 +238,21 @@ services:
       dockerfile: docker/workflows.Dockerfile
     container_name: gogi-workflows
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext
       - GOGI_WORKFLOWS_PORT=:50053
+    depends_on:
+      - postgres
+  observability:
+    build:
+      context: .
+      dockerfile: docker/observability.Dockerfile
+    container_name: gogi-observability
+    environment:
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_OBSERVABILITY_PORT=:50062
     depends_on:
       - postgres
   guardrails:
@@ -244,6 +261,7 @@ services:
       dockerfile: docker/guardrails.Dockerfile
     container_name: gogi-guardrails
     environment:
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
       - GOGI_LOG_LEVEL=debug
       - GOGI_GATEWAY_URL=gateway:50051
       - GOGI_GATEWAY_INSECURE="1"   # in-cluster gRPC is plaintext

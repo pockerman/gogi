@@ -61,6 +61,13 @@ behavioural and human approval policies before an action runs. Policies are adde
 YAML files, can run in shadow mode, and every evaluation is recorded for audit. See
 [guardrails service](guardrails_service.md).
 
+### Observability service
+
+The observability service collects the platform's telemetry: traces of every request across the services, the
+generations of LLM calls with their tokens and cost, quality scores, structured logs and metrics. Every service
+reports it automatically, in batches, off the request path. On top of it the service reports cost, watches
+budgets, and reports the health of each service. See [observability service](observability_service.md).
+
 ### Session service
 
 The session service keeps users' conversations: sessions, their messages with tool calls and results, and the

@@ -13,10 +13,10 @@ type GrpcServer struct {
 	server   *grpc.Server
 }
 
-func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy) *GrpcServer {
+func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy, options ...grpc.ServerOption) *GrpcServer {
 
 	// create underlying grpc server
-	server := grpc.NewServer()
+	server := grpc.NewServer(options...)
 
 	grpcServer := &GrpcServer{
 		registry: registry,
@@ -55,6 +55,9 @@ func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy) *GrpcServ
 
 	gogiv1.RegisterGuardrailsServiceServer(server,
 		&GuardrailsServiceProxy{proxy: proxy})
+
+	gogiv1.RegisterObservabilityServiceServer(server,
+		&ObservabilityServiceProxy{proxy: proxy})
 
 	return grpcServer
 

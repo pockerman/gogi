@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/observability"
 	"gogi/gogi/services/gateway/impl"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
@@ -41,6 +42,9 @@ func RegisterPlatformServices(registry *impl.ServiceRegistry) {
 
 	guardrails_addr := utils.GetEnv("GOGI_GUARDRAILS_SERVICE_ADDR", "guardrails:50061")
 	registry.RegisterService("guardrails", guardrails_addr)
+
+	observability_addr := utils.GetEnv("GOGI_OBSERVABILITY_SERVICE_ADDR", "observability:50062")
+	registry.RegisterService("observability", observability_addr)
 }
 
 func main() {
@@ -80,7 +84,14 @@ func main() {
 	// Register core platform services with the registry
 	RegisterPlatformServices(registry)
 
-	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry))
+	// requests get a trace here, unless the caller started one, and every service continues it
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry), telemetry.ServerOptions()...)
 
 	lis, err := net.Listen(PROTOCOL, PORT)
 	if err != nil {

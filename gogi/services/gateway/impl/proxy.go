@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/observability"
 	"io"
 
 	"google.golang.org/grpc"
@@ -33,6 +34,9 @@ func (p *GenericGRPCProxy) buildConnection(clientName string) (*grpc.ClientConn,
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {
@@ -57,6 +61,9 @@ func (p *GenericGRPCProxy) ForwardListDocuments(
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {
@@ -82,6 +89,9 @@ func (p *GenericGRPCProxy) ForwardGetDocument(
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {
@@ -107,6 +117,9 @@ func (p *GenericGRPCProxy) ForwardDeleteDocument(
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {
@@ -129,6 +142,9 @@ func (p *GenericGRPCProxy) ForwardIngestDocument(ctx context.Context, req *gogiv
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {
@@ -150,6 +166,9 @@ func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req 
 	conn, err := grpc.Dial(
 		target,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		// the services called continue the trace of the request
+		grpc.WithChainUnaryInterceptor(observability.UnaryClientInterceptor()),
+		grpc.WithChainStreamInterceptor(observability.StreamClientInterceptor()),
 	)
 
 	if err != nil {

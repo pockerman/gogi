@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/observability"
 	"gogi/gogi/services/guardrails/impl"
 
 	"gogi/gogi/storage/postgres"
@@ -54,7 +55,14 @@ func main() {
 		log.Infof("Loaded %d guardrail policies from %s", loaded, dir)
 	}
 
-	grpcServer := grpc.NewServer()
+	// every RPC gets a span, continuing the trace of the request
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
 	gogiv1.RegisterGuardrailsServiceServer(grpcServer, impl.NewGuardrailsServer(store))
 
 	// add the health server

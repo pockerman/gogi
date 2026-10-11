@@ -1,0 +1,28 @@
+apiVersion: apps/v1
+kind: Deployment
+
+metadata:
+  name: observability
+  namespace: gogi
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: observability
+  template:
+    metadata:
+      labels:
+        app: observability
+    spec:
+      containers:
+      - name: observability
+        image: gogi/observability:latest
+        imagePullPolicy: IfNotPresent
+
+        ports:
+        - containerPort: 50062
+        envFrom:
+        - configMapRef:
+            name: gogi-config
+        - secretRef:
+            name: gogi-secrets

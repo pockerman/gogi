@@ -2,6 +2,7 @@ package main
 
 import (
 	gogiv1 "gogi/gogi/gogi/v1"
+	"gogi/gogi/observability"
 	"gogi/gogi/services/llm_sessions/impl"
 	"gogi/gogi/sessions"
 
@@ -53,7 +54,8 @@ func main() {
 	// summaries are written by a model of the model service
 	if summary.Model != "" {
 		llmsAddr := utils.GetEnv("GOGI_LLM_SERVICE_ADDR", "llms:50057")
-		conn, err := grpc.NewClient(llmsAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		conn, err := grpc.NewClient(llmsAddr, append(observability.DialOptions(),
+			grpc.WithTransportCredentials(insecure.NewCredentials()))...)
 		if err != nil {
 			log.Fatalf("failed to connect to the model service at %s: %v", llmsAddr, err)
 		}
@@ -65,7 +67,14 @@ func main() {
 		log.Infof("No summary model configured; the summarize strategy truncates instead")
 	}
 
-	grpcServer := grpc.NewServer()
+	// every RPC gets a span, continuing the trace of the request
+	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
+	if err != nil {
+		log.Fatalf("failed to set up telemetry: %v", err)
+	}
+	defer closeTelemetry()
+
+	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
 	gogiv1.RegisterLLMSessionServerServer(grpcServer, impl.NewLLMSessionServer(store, assembler, config))
 
 	// add the health server
