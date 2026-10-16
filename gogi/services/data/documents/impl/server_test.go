@@ -12,6 +12,7 @@ import (
 	"gogi/gogi/documents/workflows"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/storage/postgres"
+	"gogi/gogi/utils"
 
 	"github.com/google/uuid"
 	"go.temporal.io/sdk/client"
@@ -82,6 +83,7 @@ type testService struct {
 	client    gogiv1.DocumentServerClient
 	objects   *fakeObjects
 	workflows *fakeWorkflows
+	jobs      *postgres.JobsRepository
 }
 
 // The test runs against a migrated database, e.g.
@@ -109,7 +111,8 @@ func newTestService(t *testing.T, maxUploadBytes int64) testService {
 		t.Fatal(err)
 	}
 
-	service := testService{objects: &fakeObjects{objects: map[string][]byte{}}, workflows: &fakeWorkflows{}}
+	service := testService{objects: &fakeObjects{objects: map[string][]byte{}}, workflows: &fakeWorkflows{},
+		jobs: postgres.NewJobsRepository(pool)}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
 	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.workflows, pool, service.objects, maxUploadBytes))
@@ -267,5 +270,42 @@ func TestDeleteDocumentRemovesItsFile(t *testing.T) {
 	}
 	if _, ok := service.objects.get("gogi-documents/maria--aeronautics/fe-basics"); ok {
 		t.Error("the document's file was not removed")
+	}
+}
+
+func TestDeleteDocumentCancelsItsIngestion(t *testing.T) {
+	tests := []struct {
+		name string
+		// the job's status when the document is deleted
+		status utils.JobStatus
+		want   utils.JobStatus
+	}{
+		{"still running", utils.JobPending, utils.JobCancelled},
+		{"finished", utils.JobCompleted, utils.JobCompleted},
+		{"failed", utils.JobFailed, utils.JobFailed},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			service := newTestService(t, 1024)
+			response, err := upload(t, service.client, info("fe-basics"), chunk("text"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := service.jobs.UpdateStatus(context.Background(), response.GetJobId(), test.status); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := service.client.DeleteDocument(context.Background(), &gogiv1.DeleteDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fe-basics"}); err != nil {
+				t.Fatal(err)
+			}
+
+			job, err := service.client.GetDocumentIngestJob(context.Background(), &gogiv1.GetIngestDocumentJobRequest{JobId: response.GetJobId()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if job.GetStatus() != string(test.want) {
+				t.Errorf("job status = %s, want %s", job.GetStatus(), test.want)
+			}
+		})
 	}
 }

@@ -30,6 +30,7 @@ from workers.worker_utils.embeddings.openai_embeddings import OpenAIEmbeddings
 from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
+from workers.ingest_document.ingestion_pipeline import IngestionPipeline, IngestionCancelled
 from workers.ingest_document.search_request import DocumentSearchRequest
 from workers.ingest_document.delete_request import DocumentDeleteRequest
 
@@ -69,6 +70,10 @@ object_store = ObjectStore(host=os.getenv("MINIO_HOST", "minio:9000"),
                            user=os.getenv("MINIO_ROOT_USER", "admin"),
                            password=os.getenv("MINIO_ROOT_PASSWORD", "password"))
 
+pipeline = IngestionPipeline(objects=object_store, parse_router=parse_router, chunk_router=chunk_router,
+                             embeddings_router=embeddings_router, vector_storage=vector_storage_router, state=db,
+                             heartbeat=activity.heartbeat)
+
 @activity.defn(name="ingest_document")
 def ingest_document(req):
 
@@ -76,30 +81,16 @@ def ingest_document(req):
     logger.debug(f"Starting job {request.job_id}")
 
     try:
-        # 1. Read the document from the object store and parse it
-        content = object_store.read(bucket=request.bucket, object_key=request.object_key)
-        extracted_document = parse_router.parse(file_bytes=content, filename=request.filename)
-
-        # 2. Create chunks
-        chunking_strategy = request.chunk_strategy
-        chunks = chunk_router.chunk(extracted_document, chunking_strategy=chunking_strategy,
-                                    chunk_size=request.chunk_size, chunk_overlap=request.chunk_overlap)
-
-        # 3. Create the embeddings for the chunks
-        embeddings = embeddings_router.embed_chunks(chunks=chunks,
-                                                    model=request.embeddings_model,
-                                                    client=request.embeddings_client)
-        embeddings_vals = [ embed.embeddings for embed in embeddings]
-
-
-        # 4. Store vectors
-        vector_storage_router.insert(index_name=request.index_name, document_id=request.document_id,
-                                     chunks=chunks, embeddings=embeddings_vals, metadata=request.metadata)
+        extracted_document, chunks = pipeline.run(request)
 
         pages = {section.page_number for section in extracted_document.sections if section.page_number is not None}
         words = sum(len(section.content.split()) for section in extracted_document.sections)
         db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
                                  chunk_count=len(chunks), page_count=len(pages), word_count=words)
+    except IngestionCancelled as e:
+        # the job is CANCELLED already, or its document went with its index; retrying can't help
+        logger.info(f"Job {request.job_id} stopped: {e}")
+        raise ApplicationError(str(e), type="IngestionCancelled", non_retryable=True) from e
     except AuthenticationError as e:
         # A bad/missing API key will never succeed on retry: fail the job now instead of
         # burning through the activity's retry budget.

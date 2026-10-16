@@ -291,6 +291,8 @@ services:
       - GOGI_LOG_LEVEL=debug
       - TEMPORAL_HOST=host.docker.internal:7233
       - WORK_QUEUE=ingestion-document-queue
+      # the queue its search and delete workflows send their activities to
+      - GOGI_DOCUMENTS_QUEUE_NAME=documents-queue
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -306,7 +308,36 @@ services:
     environment:
       - TEMPORAL_HOST=host.docker.internal:7233
       - TASK_QUEUE=ingestion-document-queue
-      - ACTIVITY_NAME=ingest_document
+      # long-running: only ingestions, so they don't hold up searches and deletes
+      - ACTIVITIES=ingest_document
+      - MINIO_HOST=minio:9000
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
+      - VECTOR_STORAGE_TYPE=chromadb
+      - VECTOR_STORAGE_HOST=chromadb
+      - VECTOR_STORAGE_PORT=8000
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=gogi
+      - DB_USER=gogi
+      - DB_PASSWORD=gogi
+      - OPENAI_API_KEY=1234569878
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - documents
+      - postgres
+      - chromadb
+    restart: unless-stopped
+  # the same image, serving the quick document activities on a queue of their own
+  documents-python-worker:
+    build:
+      context: .
+      dockerfile: docker/ingest_document_python_worker.Dockerfile
+    environment:
+      - TEMPORAL_HOST=host.docker.internal:7233
+      - TASK_QUEUE=documents-queue
+      - ACTIVITIES=search_document,delete_document
       - MINIO_HOST=minio:9000
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password

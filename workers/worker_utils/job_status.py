@@ -6,3 +6,4 @@ class  JobStatus(StrEnum):
     JobRunning = "RUNNING"
     JobCompleted = "COMPLETED"
     JobFailed    = "FAILED"
+    JobCancelled = "CANCELLED"

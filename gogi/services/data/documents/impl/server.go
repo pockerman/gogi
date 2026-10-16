@@ -338,7 +338,8 @@ func (s *DocumentsServer) GetDocument(ctx context.Context, req *gogiv1.GetDocume
 	return &gogiv1.GetDocumentResponse{Document: toDocumentMetadata(document)}, nil
 }
 
-// DeleteDocument deletes the document's chunks from the vector store, then the document
+// DeleteDocument cancels the document's ingestion, deletes its chunks from the vector store, then the
+// document and its file
 func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.DeleteDocumentRequest) (*gogiv1.DeleteDocumentResponse, error) {
 	indexName := req.GetIndexName()
 	documentID := req.GetDocumentId()
@@ -347,6 +348,14 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 	document, err := s.getDocument(ctx, indexName, documentID)
 	if err != nil {
 		return nil, err
+	}
+
+	// An ingestion still running would store chunks after we delete them. Cancelling its job first
+	// makes the worker stop, and remove any chunks it stores from now on
+	if document.JobID != "" {
+		if err := s.jobsRepo.Cancel(ctx, document.JobID); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to cancel the ingestion of document %s: %v", documentID, err)
+		}
 	}
 
 	options := client.StartWorkflowOptions{

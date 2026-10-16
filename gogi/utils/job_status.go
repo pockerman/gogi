@@ -7,4 +7,6 @@ const (
 	JobRunning   JobStatus = "RUNNING"
 	JobCompleted JobStatus = "COMPLETED"
 	JobFailed    JobStatus = "FAILED"
+	// the job's document was deleted before its ingestion finished
+	JobCancelled JobStatus = "CANCELLED"
 )

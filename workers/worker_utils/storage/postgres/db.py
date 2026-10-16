@@ -37,7 +37,7 @@ class PostgresDB:
                     status = %s,
                     error_message = %s,
                     completed_at = NOW()
-                WHERE id = %s
+                WHERE id = %s AND status <> 'CANCELLED'
                 """,
                 # the Go side scans this column into a plain (non-nullable) string, so
                 # NULL must never be written here; use "" to mean "no error" instead.
@@ -56,15 +56,19 @@ class PostgresDB:
                 (chunk_count, page_count, word_count, document_id, index_name),
             )
 
-    def get_job(self, job_id: str):
+    def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
+        """whether the ingestion job isn't cancelled and its document is still registered; deleting a
+        document cancels its job, and deleting an index deletes its documents"""
         with self._conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT *
-                FROM jobs
-                WHERE id = %s
+                SELECT
+                    COALESCE((SELECT status <> 'CANCELLED' FROM jobs WHERE id = %s), TRUE)
+                    AND EXISTS (
+                        SELECT 1 FROM gogi_documents d JOIN gogi_indexes i ON i.id = d.index_id
+                        WHERE i.name = %s AND d.id = %s
+                    )
                 """,
-                (job_id,),
+                (job_id, index_name, document_id),
             )
-
-        return cur.fetchone()
+            return cur.fetchone()[0]
