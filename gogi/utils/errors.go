@@ -15,3 +15,5 @@ var ErrToolTaskNotFound = errors.New("tool task not found")
 var ErrIndexNotFound = errors.New("index not found")
 
 var ErrLastIndexOwner = errors.New("an index must keep at least one owner")
+
+var ErrDocumentNotFound = errors.New("document not found")

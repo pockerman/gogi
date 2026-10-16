@@ -30,6 +30,7 @@ from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
 from workers.ingest_document.search_request import DocumentSearchRequest
+from workers.ingest_document.delete_request import DocumentDeleteRequest
 
 
 PARSERS = {
@@ -90,6 +91,11 @@ async def ingest_document(req):
         # 4. Store vectors
         vector_storage_router.insert(index_name=request.index_name, document_id=request.document_id,
                                      chunks=chunks, embeddings=embeddings_vals, metadata=request.metadata)
+
+        pages = {section.page_number for section in extracted_document.sections if section.page_number is not None}
+        words = sum(len(section.content.split()) for section in extracted_document.sections)
+        db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
+                                 chunk_count=len(chunks), page_count=len(pages), word_count=words)
     except AuthenticationError as e:
         # A bad/missing API key will never succeed on retry: fail the job now instead of
         # burning through the activity's retry budget.
@@ -164,4 +170,12 @@ async def search_document(req):
     }
 
 
+@activity.defn(name="delete_document")
+async def delete_document(req):
 
+    request = DocumentDeleteRequest(**req)
+    logger.debug(f"Deleting document {request.document_id} from index {request.index_name}")
+
+    chunks_deleted = vector_storage_router.delete_by_document(index_name=request.index_name,
+                                                              document_id=request.document_id)
+    return {"chunks_deleted": chunks_deleted}

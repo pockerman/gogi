@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 )
 
 type ChromaDBClient struct {
@@ -60,6 +61,32 @@ func (c *ChromaDBClient) CreateCollection(name string) error {
 
 	if resp.StatusCode != http.StatusOK &&
 		resp.StatusCode != http.StatusCreated {
+		return fmt.Errorf("chroma returned status %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
+// DeleteCollection deletes the collection and everything in it. Deleting a collection that
+// doesn't exist is not an error.
+func (c *ChromaDBClient) DeleteCollection(name string) error {
+
+	req, err := http.NewRequest(
+		http.MethodDelete,
+		c.baseURL+"/api/v2/tenants/default_tenant/databases/default_database/collections/"+url.PathEscape(name),
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("chroma returned status %d", resp.StatusCode)
 	}
 

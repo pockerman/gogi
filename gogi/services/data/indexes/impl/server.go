@@ -196,7 +196,14 @@ func indexError(err error, index string) error {
 func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting index %s", req.GetIndexName())
 
-	success, _ := s.gogiIndexRepo.DeleteIndexByName(req.GetIndexName())
+	success, err := s.gogiIndexRepo.DeleteIndexByName(req.GetIndexName())
+	if err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	// the index's documents go with its row; its chunks with its collection
+	if err := s.chromaDBClient.DeleteCollection(req.GetIndexName()); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete the vector store collection of %s: %v", req.GetIndexName(), err)
+	}
 
 	return &gogiv1.DeleteIndexResponse{Success: success}, nil
 }
@@ -204,15 +211,28 @@ func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteI
 func (s *IndexServer) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteIndexByIdRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting index %s", req.GetIndexId())
 
-	success, _ := s.gogiIndexRepo.DeleteIndexById(req.GetIndexId())
-
-	return &gogiv1.DeleteIndexResponse{Success: success}, nil
+	index, err := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+	if errors.Is(err, utils.ErrIndexNotFound) {
+		return &gogiv1.DeleteIndexResponse{Success: false}, nil
+	}
+	if err != nil {
+		return nil, indexError(err, req.GetIndexId())
+	}
+	return s.DeleteIndexByName(ctx, &gogiv1.DeleteIndexByNameRequest{IndexName: index.Name})
 }
 
 func (s *IndexServer) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting indexes for owner %s", req.GetOwnerName())
 
-	success, _ := s.gogiIndexRepo.DeleteOwnerIndexes(req.GetOwnerName())
+	indexes, err := s.gogiIndexRepo.GetIndexesForOwner(req.GetOwnerName())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list the indexes of %s: %v", req.GetOwnerName(), err)
+	}
+	for _, index := range indexes {
+		if _, err := s.DeleteIndexByName(ctx, &gogiv1.DeleteIndexByNameRequest{IndexName: index.Name}); err != nil {
+			return nil, err
+		}
+	}
 
-	return &gogiv1.DeleteIndexResponse{Success: success}, nil
+	return &gogiv1.DeleteIndexResponse{Success: len(indexes) > 0}, nil
 }

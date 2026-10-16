@@ -44,6 +44,18 @@ class PostgresDB:
                 (status, error_message or "", job_id),
             )
 
+    def update_document_stats(self, index_name: str, document_id: str, chunk_count: int, page_count: int,
+                              word_count: int):
+        with self._conn.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE gogi_documents
+                SET chunk_count = %s, page_count = %s, word_count = %s
+                WHERE id = %s AND index_id = (SELECT id FROM gogi_indexes WHERE name = %s)
+                """,
+                (chunk_count, page_count, word_count, document_id, index_name),
+            )
+
     def get_job(self, job_id: str):
         with self._conn.cursor() as cur:
             cur.execute(
