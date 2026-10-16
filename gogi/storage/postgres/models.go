@@ -23,7 +23,17 @@ type GogiIndex struct {
 	Owner         string
 	CreatedAt     time.Time
 	LastUpdatedAt time.Time
+	// user to role, the creator included
+	Members map[string]IndexRole
 }
+
+// IndexRole is what a member of an index may do with it
+type IndexRole string
+
+const (
+	IndexRoleOwner  IndexRole = "owner"
+	IndexRoleReader IndexRole = "reader"
+)
 
 // Prompts
 
