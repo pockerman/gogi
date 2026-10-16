@@ -23,7 +23,8 @@ type DeleteDocumentWorkflowResult struct {
 func DeleteDocumentWorkflow(ctx workflow.Context, config DeleteDocumentWorkflowConfig) (DeleteDocumentWorkflowResult, error) {
 
 	opts := workflow.ActivityOptions{
-		TaskQueue:           utils.GetDocumentsQueueName(),
+		// a delete doesn't wait behind ingestions or searches: it runs on the delete worker
+		TaskQueue:           utils.GetDeleteDocumentsQueueName(),
 		StartToCloseTimeout: 30 * time.Second,
 		RetryPolicy: &temporal.RetryPolicy{
 			MaximumAttempts: 3,

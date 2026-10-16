@@ -5,8 +5,9 @@ import "os"
 const DEFAULT_DB_URL string = "postgres://gogi:gogi@postgres:5432/gogi"
 const DEFAULT_INGESTION_DOCUMENT_QUEUE_NAME = "ingestion-document-queue"
 
-// the queue of the quick document activities, searching and deleting, apart from the long ingestions
-const DEFAULT_DOCUMENTS_QUEUE_NAME = "documents-queue"
+// searches and deletes each have a queue and a worker of their own, apart from the long ingestions
+const DEFAULT_SEARCH_DOCUMENTS_QUEUE_NAME = "search-documents-queue"
+const DEFAULT_DELETE_DOCUMENTS_QUEUE_NAME = "delete-documents-queue"
 
 func GetEnv(key string, fallback string) string {
 	value := os.Getenv(key)
@@ -25,8 +26,12 @@ func GetDatabaseURL() string {
 	)
 }
 
-func GetDocumentsQueueName() string {
-	return GetEnv("GOGI_DOCUMENTS_QUEUE_NAME", DEFAULT_DOCUMENTS_QUEUE_NAME)
+func GetSearchDocumentsQueueName() string {
+	return GetEnv("GOGI_SEARCH_DOCUMENTS_QUEUE_NAME", DEFAULT_SEARCH_DOCUMENTS_QUEUE_NAME)
+}
+
+func GetDeleteDocumentsQueueName() string {
+	return GetEnv("GOGI_DELETE_DOCUMENTS_QUEUE_NAME", DEFAULT_DELETE_DOCUMENTS_QUEUE_NAME)
 }
 
 func GetIngestionDocumentQueueName() string {

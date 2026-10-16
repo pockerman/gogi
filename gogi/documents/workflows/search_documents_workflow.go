@@ -39,8 +39,8 @@ type SearchDocumentsWorkflowResult struct {
 // blocks on its result, since a search has to return an answer to the caller.
 func SearchDocumentsWorkflow(ctx workflow.Context, config SearchDocumentsWorkflowConfig) (SearchDocumentsWorkflowResult, error) {
 
-	// a search doesn't wait behind ingestions: it runs on the worker of the documents queue
-	taskQueueName := utils.GetDocumentsQueueName()
+	// a search doesn't wait behind ingestions or deletes: it runs on the search worker
+	taskQueueName := utils.GetSearchDocumentsQueueName()
 
 	opts := workflow.ActivityOptions{
 		TaskQueue:           taskQueueName,

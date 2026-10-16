@@ -148,8 +148,9 @@ The indexes and documents services hold the knowledge an application retrieves f
   and stores them in the vector store, while the application follows the job's progress. A small document can be
   sent in one request (`IngestDocument`); a larger one, up to the upload limit (`GOGI_DOCUMENTS_MAX_UPLOAD_MB`,
   100 MB by default), is streamed in parts (`UploadDocument`), because a gRPC message is limited to 4 MB.
-  Ingestions run on a worker of their own (the ingestion queue); searches and deletes run on another (the documents
-  queue, `GOGI_DOCUMENTS_QUEUE_NAME`), so a long ingestion doesn't hold them up.
+  Ingestions, searches and deletes each run on a worker and a queue of their own (`GOGI_INGESTION_DOCUMENT_QUEUE_NAME`,
+  `GOGI_SEARCH_DOCUMENTS_QUEUE_NAME`, `GOGI_DELETE_DOCUMENTS_QUEUE_NAME`), so a long ingestion doesn't hold up the
+  others.
 - **Documents:** the documents service registers a document when its ingestion starts, with the metadata it was
   ingested with, and reports its ingestion job's status. Documents can be listed by their metadata, e.g. every
   document of a topic. Each chunk carries its document's metadata, so searches can filter on it too. Deleting a

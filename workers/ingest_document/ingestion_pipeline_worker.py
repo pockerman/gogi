@@ -18,8 +18,9 @@ async def main():
 
     TEMPORAL_HOST = os.getenv("TEMPORAL_HOST")
     TASK_QUEUE = os.getenv("TASK_QUEUE")
-    # The same image runs as two workers: one ingests documents, on the ingestion queue; the other
-    # searches and deletes them, on the documents queue, so long ingestions don't hold up either
+    # The same image runs as three workers, each serving one activity on a queue of its own, so
+    # long ingestions don't hold up searches or deletes: ingest-documents-python-worker,
+    # search-document-worker and delete-document-worker
     names = [name.strip() for name in os.getenv("ACTIVITIES", ",".join(ACTIVITIES)).split(",") if name.strip()]
     unknown = set(names) - set(ACTIVITIES)
     if unknown:
