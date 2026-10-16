@@ -11,7 +11,7 @@ data:
   GOGI_VECTOR_DB_HOST: chromadb
   GOGI_VECTOR_DB_PORT: "8000"
 
-  # MinIO connection — read by the prompts service. Credentials live in
+  # MinIO connection — read by the prompts, documents and indexes services. Credentials live in
   # the gogi-secrets Secret (GOGI_MINIO_ROOT_USER / GOGI_MINIO_ROOT_PASSWORD).
   GOGI_MINIO_HOST: minio:9000
 

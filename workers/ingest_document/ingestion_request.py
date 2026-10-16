@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Base64Bytes, Field
+from pydantic import BaseModel
 from typing import Optional, Dict
 
 class DocumentIngestionRequest(BaseModel):
@@ -13,6 +13,6 @@ class DocumentIngestionRequest(BaseModel):
     embeddings_client: str
     chunk_strategy: str
     metadata: Optional[Dict[str, str]]
-    # The Go workflow sends this as []byte, which Go's JSON encoding
-    # (via Temporal's data converter) base64-encodes automatically.
-    content: Base64Bytes
+    # the document's content is in the object store
+    bucket: str
+    object_key: str

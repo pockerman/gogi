@@ -157,6 +157,45 @@ func (p *GenericGRPCProxy) ForwardIngestDocument(ctx context.Context, req *gogiv
 	return client.IngestDocument(ctx, req)
 }
 
+// ForwardUploadDocument relays the upload's parts as they arrive, without buffering the document
+func (p *GenericGRPCProxy) ForwardUploadDocument(stream grpc.ClientStreamingServer[gogiv1.UploadDocumentRequest,
+	gogiv1.IngestDocumentJobResponse]) error {
+
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	client := gogiv1.NewDocumentServerClient(conn)
+	upstream, err := client.UploadDocument(stream.Context())
+	if err != nil {
+		return err
+	}
+
+	for {
+		part, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+		// io.EOF means the service ended the upload; CloseAndRecv returns why
+		if err := upstream.Send(part); err == io.EOF {
+			break
+		} else if err != nil {
+			return err
+		}
+	}
+
+	response, err := upstream.CloseAndRecv()
+	if err != nil {
+		return err
+	}
+	return stream.SendAndClose(response)
+}
+
 func (p *GenericGRPCProxy) ForwardGetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 	target, err := p.registry.ResolveService("documents")
 	if err != nil {

@@ -2,11 +2,13 @@ package main
 
 import (
 	"gogi/gogi/services/data/documents/impl"
+	"gogi/gogi/storage/minio"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	gogiv1 "gogi/gogi/gogi/v1"
@@ -26,6 +28,13 @@ func main() {
 	PORT := utils.GetEnv("GOGI_DOCUMENTS_PORT", ":50054")
 	PROTOCOL := utils.GetEnv("GOGI_DOCUMENTS_PROTOCOL", "tcp")
 	TEMPORAL_HOST := utils.GetEnv("TEMPORAL_HOST", "localhost:7233")
+	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
+	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
+	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_ROOT_PASSWORD", "password")
+	MAX_UPLOAD_MB, err := strconv.Atoi(utils.GetEnv("GOGI_DOCUMENTS_MAX_UPLOAD_MB", "100"))
+	if err != nil {
+		log.Fatalf("GOGI_DOCUMENTS_MAX_UPLOAD_MB is not a number: %v", err)
+	}
 
 	// 1. initialize the logger for the platform
 	utils.InitLogger()
@@ -63,7 +72,9 @@ func main() {
 	}
 
 	// Inject the temporalClient into your DocumentsServer
-	documentServer := impl.NewDocumentsServer(temporalClient, pool)
+	// the uploaded files are kept in the object store
+	objects := minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)
+	documentServer := impl.NewDocumentsServer(temporalClient, pool, objects, int64(MAX_UPLOAD_MB)*1024*1024)
 
 	grpcServer := grpc.NewServer()
 	gogiv1.RegisterDocumentServerServer(grpcServer, documentServer)

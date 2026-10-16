@@ -22,6 +22,7 @@ from workers.worker_utils.chunking.chunking_strategy_base import ChunkingType
 from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
 from workers.worker_utils.storage.vector_storage_router import VectorStorageRouter
 from workers.worker_utils.storage.postgres.db import PostgresDB
+from workers.worker_utils.storage.objects.object_store import ObjectStore
 from workers.worker_utils.embeddings.embbeddings_router import EmbeddingsRouter
 from workers.worker_utils.embeddings.embeder_base import EmbedderClientType, EmbedderModelType
 from workers.worker_utils.embeddings.sentence_transformer_embeddings import SentenceTransformerEmbeddings
@@ -64,17 +65,20 @@ db = PostgresDB(host=os.getenv("DB_HOST"), port=os.getenv("DB_PORT"),
                 database=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
                 password=os.getenv("DB_PASSWORD"))
 
+object_store = ObjectStore(host=os.getenv("MINIO_HOST", "minio:9000"),
+                           user=os.getenv("MINIO_ROOT_USER", "admin"),
+                           password=os.getenv("MINIO_ROOT_PASSWORD", "password"))
+
 @activity.defn(name="ingest_document")
-async def ingest_document(req):
+def ingest_document(req):
 
     request = DocumentIngestionRequest(**req)
     logger.debug(f"Starting job {request.job_id}")
 
-    print(f"ingest_document received request: {req}")
-
     try:
-        # 1. Parse the document
-        extracted_document = parse_router.parse(file_bytes=request.content, filename=request.filename)
+        # 1. Read the document from the object store and parse it
+        content = object_store.read(bucket=request.bucket, object_key=request.object_key)
+        extracted_document = parse_router.parse(file_bytes=content, filename=request.filename)
 
         # 2. Create chunks
         chunking_strategy = request.chunk_strategy
@@ -135,7 +139,7 @@ def _build_where_clause(metadata_filter, document_ids):
 
 
 @activity.defn(name="search_document")
-async def search_document(req):
+def search_document(req):
 
     request = DocumentSearchRequest(**req)
     logger.debug(f"Searching index {request.index_name} for: {request.query!r}")
@@ -171,7 +175,7 @@ async def search_document(req):
 
 
 @activity.defn(name="delete_document")
-async def delete_document(req):
+def delete_document(req):
 
     request = DocumentDeleteRequest(**req)
     logger.debug(f"Deleting document {request.document_id} from index {request.index_name}")

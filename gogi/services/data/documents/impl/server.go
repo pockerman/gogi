@@ -1,12 +1,15 @@
 package impl
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/utils"
+	"io"
 	"time"
 
+	"gogi/gogi/documents"
 	"gogi/gogi/documents/workflows"
 	"gogi/gogi/storage/postgres"
 
@@ -14,37 +17,112 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
 	"go.temporal.io/sdk/client"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-type DocumentsServer struct {
-	gogiv1.UnimplementedDocumentServerServer
-	temporalClient client.Client // Inject this via dependency injection
-	jobsRepo       postgres.JobsRepository
-	documentsRepo  *postgres.DocumentsRepository
+// ObjectStore keeps the documents' uploaded files
+type ObjectStore interface {
+	// Put stores the content and returns its size; a size of -1 means unknown
+	Put(ctx context.Context, bucket, object string, content io.Reader, size int64, contentType string) (int64, error)
+	Remove(ctx context.Context, bucket, object string) error
 }
 
-func NewDocumentsServer(temporalClient client.Client, dbClient *pgxpool.Pool) *DocumentsServer {
+// WorkflowStarter starts Temporal workflows; client.Client is one
+type WorkflowStarter interface {
+	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{},
+		args ...interface{}) (client.WorkflowRun, error)
+}
+
+type DocumentsServer struct {
+	gogiv1.UnimplementedDocumentServerServer
+	temporalClient WorkflowStarter
+	jobsRepo       postgres.JobsRepository
+	documentsRepo  *postgres.DocumentsRepository
+	objects        ObjectStore
+	// uploads larger than this are refused
+	maxUploadBytes int64
+}
+
+func NewDocumentsServer(temporalClient WorkflowStarter, dbClient *pgxpool.Pool, objects ObjectStore,
+	maxUploadBytes int64) *DocumentsServer {
 	return &DocumentsServer{
 		temporalClient: temporalClient,
 		jobsRepo:       *postgres.NewJobsRepository(dbClient),
 		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
+		objects:        objects,
+		maxUploadBytes: maxUploadBytes,
 	}
 }
 
+// IngestDocument ingests a document small enough for a single gRPC message
 func (s *DocumentsServer) IngestDocument(ctx context.Context,
 	req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	return s.ingest(ctx, req, bytes.NewReader(req.GetContent()), int64(len(req.GetContent())))
+}
+
+// UploadDocument ingests a document streamed in parts: its details first, then its content
+func (s *DocumentsServer) UploadDocument(stream grpc.ClientStreamingServer[gogiv1.UploadDocumentRequest,
+	gogiv1.IngestDocumentJobResponse]) error {
+
+	first, err := stream.Recv()
+	if err != nil {
+		return status.Errorf(codes.InvalidArgument, "expected the document's details: %v", err)
+	}
+	info := first.GetInfo()
+	if info == nil {
+		return status.Error(codes.InvalidArgument, "the first message must carry the document's details")
+	}
+	if len(info.GetContent()) > 0 {
+		return status.Error(codes.InvalidArgument, "the document's details must not carry content; send it in chunks")
+	}
+
+	response, err := s.ingest(stream.Context(), info, &uploadReader{stream: stream}, -1)
+	if err != nil {
+		return err
+	}
+	return stream.SendAndClose(response)
+}
+
+// ingest stores the document's content, registers the document and starts its ingestion
+func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocumentRequest, content io.Reader,
+	size int64) (*gogiv1.IngestDocumentJobResponse, error) {
 
 	indexName := req.GetIndexName()
-	log.Infof("Ingesting document for %s", indexName)
+	log.Infof("Ingesting document %s for %s", req.GetFilename(), indexName)
+
+	if size > s.maxUploadBytes {
+		return nil, s.tooLarge(req.GetFilename())
+	}
 
 	documentID := req.GetDocumentId()
 	if documentID == "" {
 		documentID = uuid.New().String()
 	}
 
-	// create a Job fof the ingestion
+	// a document of the same id is replaced only by deleting it first
+	if _, err := s.documentsRepo.Get(ctx, indexName, documentID); err == nil {
+		return nil, status.Errorf(codes.AlreadyExists, "document %s already exists in index %s", documentID, indexName)
+	}
+
+	// 1. store the content, so the workflow carries a reference to it rather than the content
+	objectKey := documents.ObjectKey(indexName, documentID)
+	limited := &limitedReader{reader: content, remaining: s.maxUploadBytes}
+	storedSize, err := s.objects.Put(ctx, documents.Bucket, objectKey, limited, size, req.GetContentType())
+	if err != nil {
+		// a partly stored object isn't kept, but make sure
+		s.removeObject(objectKey)
+		if limited.exceeded {
+			return nil, s.tooLarge(req.GetFilename())
+		}
+		if st, ok := status.FromError(err); ok && st.Code() != codes.Unknown {
+			return nil, err
+		}
+		return nil, status.Errorf(codes.Internal, "failed to store the document's content: %v", err)
+	}
+
+	// 2. create a job for the ingestion
 	newUUID := uuid.New().String()
 	job := postgres.Job{
 		ID:           newUUID,
@@ -56,32 +134,37 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 	}
 
 	if err := s.jobsRepo.Create(ctx, job); err != nil {
+		s.removeObject(objectKey)
 		return nil, status.Errorf(codes.Internal, "failed to create the ingestion job: %v", err)
 	}
 
 	// the document is listed from now on, with its job's status
-	err := s.documentsRepo.Create(ctx, postgres.Document{
+	err = s.documentsRepo.Create(ctx, postgres.Document{
 		ID:          documentID,
 		IndexName:   indexName,
 		Filename:    req.GetFilename(),
 		ContentType: req.GetContentType(),
 		Metadata:    req.GetMetadata(),
 		JobID:       job.ID,
+		SizeBytes:   storedSize,
+		ObjectKey:   objectKey,
 	})
-	if errors.Is(err, utils.ErrIndexNotFound) {
-		return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
-	}
 	if err != nil {
+		s.removeObject(objectKey)
+		if errors.Is(err, utils.ErrIndexNotFound) {
+			return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
+		}
 		return nil, status.Errorf(codes.Internal, "failed to register the document: %v", err)
 	}
 
-	// 1. Map gRPC request to Workflow Config
+	// 3. map the request to the workflow's config
 	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
 		JobId:            job.ID,
-		IndexName:        req.GetIndexName(),
+		IndexName:        indexName,
 		Filename:         req.GetFilename(),
 		DocumentID:       documentID,
-		Content:          req.GetContent(),
+		Bucket:           documents.Bucket,
+		ObjectKey:        objectKey,
 		ChunkStrategy:    req.GetChunkStrategy(),
 		EmbeddingsModel:  req.GetEmbeddingsModel(),
 		EmbeddingsClient: req.GetEmbeddingsClient(),
@@ -89,27 +172,21 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 		Metadata:         req.GetMetadata(),
 	}
 
-	taskQueueName := utils.GetIngestionDocumentQueueName()
-
-	// 2. Start the Workflow asynchronously
-	// We generate a deterministic ID based on DocumentID to prevent duplicate processing
 	options := client.StartWorkflowOptions{
 		ID:        newUUID,
-		TaskQueue: taskQueueName, // Queue where the GO workflow worker is listening
+		TaskQueue: utils.GetIngestionDocumentQueueName(), // Queue where the GO workflow worker is listening
 		// Idempotency: Fail if already running, or use USE_EXISTING to attach to running one
 		WorkflowIDConflictPolicy: 1, // WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
 	}
 
-	// Execute the workflow defined in step 1
+	// 4. start the workflow asynchronously (fire and forget); the client polls the job
 	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.IngestDocumentWorkflow, pipelineConfig)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to start workflow: %v", err)
 	}
 
-	// 3. Return immediately (Fire-and-Forget pattern)
-	// The client gets a Job ID (Workflow ID) to poll status later if needed
 	return &gogiv1.IngestDocumentJobResponse{
-		IndexName:    req.GetIndexName(),
+		IndexName:    indexName,
 		DocumentId:   documentID,
 		Filename:     req.GetFilename(),
 		Status:       string(utils.JobPending), // Initial status
@@ -117,6 +194,60 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 		JobId:        we.GetID(), // Return the Workflow ID for tracking
 		ErrorMessage: "",
 	}, nil
+}
+
+func (s *DocumentsServer) tooLarge(filename string) error {
+	return status.Errorf(codes.InvalidArgument, "document %s is larger than the upload limit of %d MB",
+		filename, s.maxUploadBytes/(1024*1024))
+}
+
+// removeObject removes an object that's no longer needed; a failure leaves it behind, so it's only logged
+func (s *DocumentsServer) removeObject(objectKey string) {
+	if err := s.objects.Remove(context.Background(), documents.Bucket, objectKey); err != nil {
+		log.Warnf("failed to remove object %s: %v", objectKey, err)
+	}
+}
+
+// uploadReader reads the content chunks of an upload stream
+type uploadReader struct {
+	stream grpc.ClientStreamingServer[gogiv1.UploadDocumentRequest, gogiv1.IngestDocumentJobResponse]
+	buffer []byte
+}
+
+func (r *uploadReader) Read(p []byte) (int, error) {
+	for len(r.buffer) == 0 {
+		message, err := r.stream.Recv()
+		if err != nil {
+			// io.EOF when the client has sent everything
+			return 0, err
+		}
+		if message.GetInfo() != nil {
+			return 0, status.Error(codes.InvalidArgument, "the document's details must be sent once, first")
+		}
+		r.buffer = message.GetChunk()
+	}
+	n := copy(p, r.buffer)
+	r.buffer = r.buffer[n:]
+	return n, nil
+}
+
+// limitedReader fails once more than remaining bytes are read
+type limitedReader struct {
+	reader    io.Reader
+	remaining int64
+	exceeded  bool
+}
+
+var errTooLarge = errors.New("the document is larger than the upload limit")
+
+func (r *limitedReader) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	r.remaining -= int64(n)
+	if r.remaining < 0 {
+		r.exceeded = true
+		return n, errTooLarge
+	}
+	return n, err
 }
 
 func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
@@ -213,7 +344,8 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 	documentID := req.GetDocumentId()
 	log.Infof("Deleting document %s from index %s", documentID, indexName)
 
-	if _, err := s.getDocument(ctx, indexName, documentID); err != nil {
+	document, err := s.getDocument(ctx, indexName, documentID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -234,6 +366,9 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 
 	if err := s.documentsRepo.Delete(ctx, indexName, documentID); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete document %s: %v", documentID, err)
+	}
+	if document.ObjectKey != "" {
+		s.removeObject(document.ObjectKey)
 	}
 
 	return &gogiv1.DeleteDocumentResponse{
@@ -266,5 +401,6 @@ func toDocumentMetadata(document postgres.Document) *gogiv1.DocumentMetadata {
 		Status:      document.Status,
 		JobId:       document.JobID,
 		CreatedAt:   document.CreatedAt.Format(time.RFC3339),
+		SizeBytes:   document.SizeBytes,
 	}
 }

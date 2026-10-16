@@ -97,11 +97,17 @@ services:
       - GOGI_VECTOR_DB_PORT=8000
       - GOGI_INGESTION_DOCUMENT_QUEUE_NAME=ingestion-document-queue
       - TEMPORAL_HOST=host.docker.internal:7233
+      # uploads are kept in MinIO; the workflow carries only their key
+      - GOGI_MINIO_HOST=minio:9000
+      - GOGI_MINIO_ROOT_USER=admin
+      - GOGI_MINIO_ROOT_PASSWORD=password
+      - GOGI_DOCUMENTS_MAX_UPLOAD_MB=100
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - chromadb
+      - minio
   indexes:
     build:  
       context: .
@@ -114,9 +120,14 @@ services:
       - GOGI_VECTOR_DB_TYPE=chroma
       - GOGI_VECTOR_DB_HOST=chromadb
       - GOGI_VECTOR_DB_PORT=8000
+      # deleting an index deletes its documents' files
+      - GOGI_MINIO_HOST=minio:9000
+      - GOGI_MINIO_ROOT_USER=admin
+      - GOGI_MINIO_ROOT_PASSWORD=password
     depends_on:
       - postgres
       - chromadb
+      - minio
   # HashiCorp Vault dev server: the default credential store for local development.
   # Dev mode keeps everything in memory, unsealed, with a fixed root token:
   # never use it outside development
@@ -296,6 +307,9 @@ services:
       - TEMPORAL_HOST=host.docker.internal:7233
       - TASK_QUEUE=ingestion-document-queue
       - ACTIVITY_NAME=ingest_document
+      - MINIO_HOST=minio:9000
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password
       - VECTOR_STORAGE_TYPE=chromadb
       - VECTOR_STORAGE_HOST=chromadb
       - VECTOR_STORAGE_PORT=8000

@@ -3,6 +3,8 @@ package impl
 import (
 	"context"
 	gogiv1 "gogi/gogi/gogi/v1"
+
+	"google.golang.org/grpc"
 )
 
 type DocumentsProxy struct {
@@ -29,6 +31,11 @@ func (p *DocumentsProxy) DeleteDocument(ctx context.Context, req *gogiv1.DeleteD
 func (p *DocumentsProxy) IngestDocument(ctx context.Context,
 	req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 	return p.proxy.ForwardIngestDocument(ctx, req)
+}
+
+func (p *DocumentsProxy) UploadDocument(stream grpc.ClientStreamingServer[gogiv1.UploadDocumentRequest,
+	gogiv1.IngestDocumentJobResponse]) error {
+	return p.proxy.ForwardUploadDocument(stream)
 }
 
 func (p *DocumentsProxy) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {

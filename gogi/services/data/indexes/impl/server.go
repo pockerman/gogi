@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"errors"
+	"gogi/gogi/documents"
 	"sort"
 	"time"
 
@@ -26,12 +27,19 @@ type IndexServer struct {
 	gogiv1.UnimplementedIndexServiceServer
 	chromaDBClient *vector_storage.ChromaDBClient
 	gogiIndexRepo  postgres.GogiIndexRepository
+	objects        ObjectStore
 }
 
-func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool) *IndexServer {
+// ObjectStore keeps the documents' uploaded files
+type ObjectStore interface {
+	RemovePrefix(ctx context.Context, bucket, prefix string) error
+}
+
+func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool, objects ObjectStore) *IndexServer {
 	return &IndexServer{
 		chromaDBClient: chromaDBClient,
 		gogiIndexRepo:  *postgres.NewGogiIndexesRepository(dbClient),
+		objects:        objects,
 	}
 }
 
@@ -200,9 +208,12 @@ func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteI
 	if err != nil {
 		return nil, indexError(err, req.GetIndexName())
 	}
-	// the index's documents go with its row; its chunks with its collection
+	// the index's documents go with its row; its chunks with its collection; its files with its prefix
 	if err := s.chromaDBClient.DeleteCollection(req.GetIndexName()); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete the vector store collection of %s: %v", req.GetIndexName(), err)
+	}
+	if err := s.objects.RemovePrefix(ctx, documents.Bucket, documents.IndexPrefix(req.GetIndexName())); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete the files of %s: %v", req.GetIndexName(), err)
 	}
 
 	return &gogiv1.DeleteIndexResponse{Success: success}, nil

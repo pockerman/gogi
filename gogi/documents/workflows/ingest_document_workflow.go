@@ -12,11 +12,13 @@ import (
 const IngestDocumentWorkflowName = "IngestDocumentWorkflow"
 
 type IngestDocumentWorkflowConfig struct {
-	JobId            string            `json:"job_id"`
-	IndexName        string            `json:"index_name"`
-	Filename         string            `json:"filename"`
-	DocumentID       string            `json:"document_id"`
-	Content          []byte            `json:"content"` // Base64 encoded automatically
+	JobId      string `json:"job_id"`
+	IndexName  string `json:"index_name"`
+	Filename   string `json:"filename"`
+	DocumentID string `json:"document_id"`
+	// the document's content is in the object store; workflow inputs are limited to a few MB
+	Bucket           string            `json:"bucket"`
+	ObjectKey        string            `json:"object_key"`
 	ChunkStrategy    string            `json:"chunk_strategy"`
 	EmbeddingsModel  string            `json:"embeddings_model"`
 	EmbeddingsClient string            `json:"embeddings_client"`
