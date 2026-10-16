@@ -93,6 +93,17 @@ Applications reach every service through the gateway. It serves the gRPC API of 
 to the service that owns it, so applications need one address and the services can move without them noticing. A
 request that arrives without a trace gets one at the gateway.
 
+The gateway also serves the standard gRPC health protocol, `grpc.health.v1.Health`, for the whole platform:
+
+- `Check` with an empty service reports the gateway itself.
+- `Check` with a service's name, e.g. `llms`, asks that service's own health server.
+- `List` reports the gateway and every service at once.
+
+A service that doesn't answer within two seconds is reported as `NOT_SERVING`. An unknown name fails with
+`NOT_FOUND`. Every service runs a health server of its own as well, for container and Kubernetes probes. With the
+Python SDK, `platform.health.status()` returns the status of every service, and `platform.health.check("llms")`
+the status of one.
+
 ### Model service
 
 The model service runs models, with a single API whatever the provider. The built-in providers are OpenAI and
