@@ -69,6 +69,13 @@ func (r *DocumentsRepository) Create(ctx context.Context, document Document) err
 	return nil
 }
 
+// IndexExists says whether there's an index of the name
+func (r *DocumentsRepository) IndexExists(ctx context.Context, indexName string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM gogi_indexes WHERE name = $1)`, indexName).Scan(&exists)
+	return exists, err
+}
+
 // List returns the documents of the index whose metadata has every key and value of metadataFilter
 func (r *DocumentsRepository) List(ctx context.Context, indexName string, metadataFilter map[string]string) ([]Document, error) {
 
