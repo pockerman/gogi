@@ -17,7 +17,10 @@ type Document struct {
 	Filename    string
 	ContentType string
 	Metadata    map[string]string
-	JobID       string
+	SizeBytes   int64
+	// the key of the uploaded file in the object store; empty if it has none
+	ObjectKey string
+	JobID     string
 	// the status of the document's ingestion job
 	Status     string
 	ChunkCount int32
@@ -36,7 +39,8 @@ func NewDocumentsRepository(pool *pgxpool.Pool) *DocumentsRepository {
 
 const documentColumns = `
 	d.id, i.name, d.filename, d.content_type, d.metadata, COALESCE(d.job_id::text, ''),
-	COALESCE(j.status, ''), d.chunk_count, d.page_count, d.word_count, d.created_at`
+	COALESCE(j.status, ''), d.chunk_count, d.page_count, d.word_count, d.created_at,
+	d.size_bytes, d.object_key`
 
 const documentFrom = `
 	FROM gogi_documents d
@@ -52,9 +56,10 @@ func (r *DocumentsRepository) Create(ctx context.Context, document Document) err
 	}
 
 	tag, err := r.pool.Exec(ctx, `
-		INSERT INTO gogi_documents (index_id, id, filename, content_type, metadata, job_id)
-		SELECT id, $2, $3, $4, $5, NULLIF($6, '')::uuid FROM gogi_indexes WHERE name = $1
-	`, document.IndexName, document.ID, document.Filename, document.ContentType, metadata, document.JobID)
+		INSERT INTO gogi_documents (index_id, id, filename, content_type, metadata, job_id, size_bytes, object_key)
+		SELECT id, $2, $3, $4, $5, NULLIF($6, '')::uuid, $7, $8 FROM gogi_indexes WHERE name = $1
+	`, document.IndexName, document.ID, document.Filename, document.ContentType, metadata, document.JobID,
+		document.SizeBytes, document.ObjectKey)
 	if err != nil {
 		return err
 	}
@@ -122,6 +127,8 @@ func scanDocument(row pgx.CollectableRow) (Document, error) {
 		&document.PageCount,
 		&document.WordCount,
 		&document.CreatedAt,
+		&document.SizeBytes,
+		&document.ObjectKey,
 	)
 	return document, err
 }

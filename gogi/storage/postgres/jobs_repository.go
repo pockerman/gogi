@@ -69,6 +69,15 @@ func (r *JobsRepository) UpdateStatus(
 	return err
 }
 
+// Cancel marks a job CANCELLED unless it has finished; the ingestion worker stops a cancelled job
+func (r *JobsRepository) Cancel(ctx context.Context, id string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE jobs SET status = $1
+		WHERE id = $2 AND status IN ($3, $4)
+	`, utils.JobCancelled, id, utils.JobPending, utils.JobRunning)
+	return err
+}
+
 func (r *JobsRepository) GetJob(id string) (Job, error) {
 
 	var job Job

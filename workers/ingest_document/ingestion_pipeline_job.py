@@ -22,6 +22,7 @@ from workers.worker_utils.chunking.chunking_strategy_base import ChunkingType
 from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
 from workers.worker_utils.storage.vector_storage_router import VectorStorageRouter
 from workers.worker_utils.storage.postgres.db import PostgresDB
+from workers.worker_utils.storage.objects.object_store import ObjectStore
 from workers.worker_utils.embeddings.embbeddings_router import EmbeddingsRouter
 from workers.worker_utils.embeddings.embeder_base import EmbedderClientType, EmbedderModelType
 from workers.worker_utils.embeddings.sentence_transformer_embeddings import SentenceTransformerEmbeddings
@@ -29,6 +30,7 @@ from workers.worker_utils.embeddings.openai_embeddings import OpenAIEmbeddings
 from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
+from workers.ingest_document.ingestion_pipeline import IngestionPipeline, IngestionCancelled
 from workers.ingest_document.search_request import DocumentSearchRequest
 from workers.ingest_document.delete_request import DocumentDeleteRequest
 
@@ -64,38 +66,31 @@ db = PostgresDB(host=os.getenv("DB_HOST"), port=os.getenv("DB_PORT"),
                 database=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
                 password=os.getenv("DB_PASSWORD"))
 
+object_store = ObjectStore(host=os.getenv("MINIO_HOST", "minio:9000"),
+                           user=os.getenv("MINIO_ROOT_USER", "admin"),
+                           password=os.getenv("MINIO_ROOT_PASSWORD", "password"))
+
+pipeline = IngestionPipeline(objects=object_store, parse_router=parse_router, chunk_router=chunk_router,
+                             embeddings_router=embeddings_router, vector_storage=vector_storage_router, state=db,
+                             heartbeat=activity.heartbeat)
+
 @activity.defn(name="ingest_document")
-async def ingest_document(req):
+def ingest_document(req):
 
     request = DocumentIngestionRequest(**req)
     logger.debug(f"Starting job {request.job_id}")
 
-    print(f"ingest_document received request: {req}")
-
     try:
-        # 1. Parse the document
-        extracted_document = parse_router.parse(file_bytes=request.content, filename=request.filename)
-
-        # 2. Create chunks
-        chunking_strategy = request.chunk_strategy
-        chunks = chunk_router.chunk(extracted_document, chunking_strategy=chunking_strategy,
-                                    chunk_size=request.chunk_size, chunk_overlap=request.chunk_overlap)
-
-        # 3. Create the embeddings for the chunks
-        embeddings = embeddings_router.embed_chunks(chunks=chunks,
-                                                    model=request.embeddings_model,
-                                                    client=request.embeddings_client)
-        embeddings_vals = [ embed.embeddings for embed in embeddings]
-
-
-        # 4. Store vectors
-        vector_storage_router.insert(index_name=request.index_name, document_id=request.document_id,
-                                     chunks=chunks, embeddings=embeddings_vals, metadata=request.metadata)
+        extracted_document, chunks = pipeline.run(request)
 
         pages = {section.page_number for section in extracted_document.sections if section.page_number is not None}
         words = sum(len(section.content.split()) for section in extracted_document.sections)
         db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
                                  chunk_count=len(chunks), page_count=len(pages), word_count=words)
+    except IngestionCancelled as e:
+        # the job is CANCELLED already, or its document went with its index; retrying can't help
+        logger.info(f"Job {request.job_id} stopped: {e}")
+        raise ApplicationError(str(e), type="IngestionCancelled", non_retryable=True) from e
     except AuthenticationError as e:
         # A bad/missing API key will never succeed on retry: fail the job now instead of
         # burning through the activity's retry budget.
@@ -135,7 +130,7 @@ def _build_where_clause(metadata_filter, document_ids):
 
 
 @activity.defn(name="search_document")
-async def search_document(req):
+def search_document(req):
 
     request = DocumentSearchRequest(**req)
     logger.debug(f"Searching index {request.index_name} for: {request.query!r}")
@@ -171,7 +166,7 @@ async def search_document(req):
 
 
 @activity.defn(name="delete_document")
-async def delete_document(req):
+def delete_document(req):
 
     request = DocumentDeleteRequest(**req)
     logger.debug(f"Deleting document {request.document_id} from index {request.index_name}")

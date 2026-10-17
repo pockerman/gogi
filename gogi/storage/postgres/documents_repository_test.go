@@ -24,7 +24,8 @@ func TestDocumentsRepository(t *testing.T) {
 
 	documents := []Document{
 		{ID: "fe-basics", IndexName: "maria--aeronautics", Filename: "fe-basics.txt", ContentType: "text/plain",
-			Metadata: map[string]string{"subject": "numerical-methods", "topic": "finite-elements"}, JobID: jobID},
+			Metadata: map[string]string{"subject": "numerical-methods", "topic": "finite-elements"}, JobID: jobID,
+			SizeBytes: 2048, ObjectKey: "maria--aeronautics/fe-basics"},
 		{ID: "fd-schemes", IndexName: "maria--aeronautics", Filename: "fd-schemes.txt",
 			Metadata: map[string]string{"subject": "numerical-methods", "topic": "finite-differences"}},
 		{ID: "blasius", IndexName: "maria--aeronautics", Filename: "blasius.txt",
@@ -73,7 +74,8 @@ func TestDocumentsRepository(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.Status != string(utils.JobPending) || document.JobID != jobID || document.Metadata["topic"] != "finite-elements" {
+	if document.Status != string(utils.JobPending) || document.JobID != jobID || document.Metadata["topic"] != "finite-elements" ||
+		document.SizeBytes != 2048 || document.ObjectKey != "maria--aeronautics/fe-basics" {
 		t.Errorf("document = %+v", document)
 	}
 	// a document registered without a job has no status
