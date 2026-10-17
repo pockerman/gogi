@@ -23,8 +23,9 @@ class IngestionState(Protocol):
     def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
         """whether the job isn't cancelled and its document is still registered"""
 
-    def replace_sections(self, index_name: str, document_id: str, sections) -> None:
-        """store the document's sections, so it can be read section by section"""
+    def replace_sections(self, job_id: str, index_name: str, document_id: str, sections) -> bool:
+        """store the document's sections, so it can be read section by section, if the job is still the
+        document's; returns whether they were stored"""
 
 
 class IngestionPipeline:
@@ -52,7 +53,9 @@ class IngestionPipeline:
         content = self._objects.read(bucket=request.bucket, object_key=request.object_key)
         extracted_document = self._parse_router.parse(file_bytes=content, filename=request.filename)
         check()
-        self._state.replace_sections(request.index_name, request.document_id, extracted_document.sections)
+        if not self._state.replace_sections(request.job_id, request.index_name, request.document_id,
+                                            extracted_document.sections):
+            raise IngestionCancelled(f"document {request.document_id} of {request.index_name} was replaced")
 
         # 2. create chunks
         chunks = self._chunk_router.chunk(extracted_document, chunking_strategy=request.chunk_strategy,
@@ -69,14 +72,17 @@ class IngestionPipeline:
 
         # 4. store the vectors, unless the document was deleted meanwhile
         check()
+        # each chunk records the job that stored it, so the job removes only its own chunks if it's stopped
+        metadata = {**(request.metadata or {}), "job_id": request.job_id}
         self._vector_storage.insert(index_name=request.index_name, document_id=request.document_id,
-                                    chunks=chunks, embeddings=embeddings, metadata=request.metadata)
+                                    chunks=chunks, embeddings=embeddings, metadata=metadata)
         try:
             check()
         except IngestionCancelled:
             # deleted while the chunks were stored: the delete may have run before they were
             removed = self._vector_storage.delete_by_document(index_name=request.index_name,
-                                                              document_id=request.document_id)
+                                                              document_id=request.document_id,
+                                                              job_id=request.job_id)
             logger.info(f"Removed {removed} chunks of {request.document_id}, deleted during its ingestion")
             raise
 

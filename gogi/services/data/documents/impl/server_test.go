@@ -471,3 +471,56 @@ func TestDownloadPartOfADocument(t *testing.T) {
 		t.Errorf("an offset past the end: err = %v, want OutOfRange", err)
 	}
 }
+
+func TestReplaceADocumentsContent(t *testing.T) {
+	service := newTestService(t, 1024)
+	first, err := upload(t, service.client, info("fem-notes"), chunk("old text"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	replacing := info("fem-notes")
+	replacing.GetInfo().Replace = true
+	replacing.GetInfo().Filename = "fem-notes.md"
+
+	second, err := upload(t, service.client, replacing, chunk("new text"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if second.GetJobId() == first.GetJobId() || second.GetDocumentId() != "fem-notes" {
+		t.Errorf("replacing gave job %s for document %s, want a new job for fem-notes", second.GetJobId(), second.GetDocumentId())
+	}
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GetDocument().GetJobId() != second.GetJobId() || document.GetDocument().GetFilename() != "fem-notes.md" ||
+		document.GetDocument().GetSizeBytes() != int64(len("new text")) {
+		t.Errorf("document = %+v", document.GetDocument())
+	}
+	// the old content's ingestion is stopped, and the new content is ingested
+	old, _ := service.client.GetDocumentIngestJob(context.Background(), &gogiv1.GetIngestDocumentJobRequest{JobId: first.GetJobId()})
+	if old.GetStatus() != string(utils.JobCancelled) {
+		t.Errorf("the old job is %s, want CANCELLED", old.GetStatus())
+	}
+	latest := service.workflows.ingestion[len(service.workflows.ingestion)-1]
+	if content, _ := service.objects.get("gogi-documents/" + latest.ObjectKey); string(content) != "new text" || latest.JobId != second.GetJobId() {
+		t.Errorf("the new ingestion reads %q for job %s", content, latest.JobId)
+	}
+	// only the new content is kept
+	if _, kept := service.objects.get("gogi-documents/maria--aeronautics/fem-notes"); kept || len(service.objects.objects) != 1 {
+		t.Errorf("objects = %d; the old content was kept", len(service.objects.objects))
+	}
+}
+
+func TestReplacingNeedsAnExistingDocument(t *testing.T) {
+	service := newTestService(t, 1024)
+	replacing := info("missing")
+	replacing.GetInfo().Replace = true
+
+	_, err := upload(t, service.client, replacing, chunk("text"))
+
+	if status.Code(err) != codes.NotFound || len(service.objects.objects) != 0 {
+		t.Errorf("err = %v, objects = %d; want NotFound and nothing stored", err, len(service.objects.objects))
+	}
+}

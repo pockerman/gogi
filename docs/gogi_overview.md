@@ -163,6 +163,8 @@ The indexes and documents services hold the knowledge an application retrieves f
   (`DownloadDocument`), whole or a range of its bytes, e.g. for a video player seeking.
 - **Stored files:** a file can be kept without being ingested (`store_only`), e.g. a video: it is registered and
   ready at once, and has no chunks or sections.
+- **Replacing content:** a document's content can be replaced, e.g. after it was edited (`replace`): any ingestion of
+  the old content is stopped, its chunks are deleted, and the new content is ingested under the same document id.
 - **Search:** the documents service searches an index for the chunks relevant to a query.
 
 ### Tool service

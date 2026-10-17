@@ -89,7 +89,8 @@ func (s *DocumentsServer) UploadDocument(stream grpc.ClientStreamingServer[gogiv
 	return stream.SendAndClose(response)
 }
 
-// ingest stores the document's content, registers the document and starts its ingestion
+// ingest stores the document's content, registers the document (or replaces its content) and starts
+// its ingestion
 func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocumentRequest, content io.Reader,
 	size int64) (*gogiv1.IngestDocumentJobResponse, error) {
 
@@ -101,17 +102,33 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 	}
 
 	documentID := req.GetDocumentId()
+	replace := req.GetReplace()
 	if documentID == "" {
+		if replace {
+			return nil, status.Error(codes.InvalidArgument, "replacing a document needs its document_id")
+		}
 		documentID = uuid.New().String()
 	}
 
-	// a document of the same id is replaced only by deleting it first
-	if _, err := s.documentsRepo.Get(ctx, indexName, documentID); err == nil {
+	existing, err := s.documentsRepo.Get(ctx, indexName, documentID)
+	switch {
+	case err == nil && !replace:
+		// a document of the same id is replaced only when asked to
 		return nil, status.Errorf(codes.AlreadyExists, "document %s already exists in index %s", documentID, indexName)
+	case errors.Is(err, utils.ErrDocumentNotFound) && replace:
+		return nil, status.Errorf(codes.NotFound, "document %s not found in index %s", documentID, indexName)
+	case err != nil && !errors.Is(err, utils.ErrDocumentNotFound):
+		return nil, status.Errorf(codes.Internal, "failed to get document %s: %v", documentID, err)
 	}
 
-	// 1. store the content, so the workflow carries a reference to it rather than the content
+	newUUID := uuid.New().String()
+
+	// 1. store the content, so the workflow carries a reference to it rather than the content. New content
+	// goes to a key of its own, so the old content stays until the document no longer refers to it
 	objectKey := documents.ObjectKey(indexName, documentID)
+	if replace {
+		objectKey = documents.VersionKey(indexName, documentID, newUUID)
+	}
 	limited := &limitedReader{reader: content, remaining: s.maxUploadBytes}
 	storedSize, err := s.objects.Put(ctx, documents.Bucket, objectKey, limited, size, req.GetContentType())
 	if err != nil {
@@ -127,7 +144,6 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 	}
 
 	// 2. create a job for the ingestion
-	newUUID := uuid.New().String()
 	job := postgres.Job{
 		ID:           newUUID,
 		DocumentID:   documentID,
@@ -142,8 +158,7 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		return nil, status.Errorf(codes.Internal, "failed to create the ingestion job: %v", err)
 	}
 
-	// the document is listed from now on, with its job's status
-	err = s.documentsRepo.Create(ctx, postgres.Document{
+	document := postgres.Document{
 		ID:          documentID,
 		IndexName:   indexName,
 		Filename:    req.GetFilename(),
@@ -152,8 +167,14 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		JobID:       job.ID,
 		SizeBytes:   storedSize,
 		ObjectKey:   objectKey,
-	})
-	if err != nil {
+	}
+	if replace {
+		if err := s.replaceContent(ctx, existing, document); err != nil {
+			s.removeObject(objectKey)
+			return nil, err
+		}
+	} else if err := s.documentsRepo.Create(ctx, document); err != nil {
+		// the document is listed from now on, with its job's status
 		s.removeObject(objectKey)
 		if errors.Is(err, utils.ErrIndexNotFound) {
 			return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
@@ -213,6 +234,28 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		JobId:        we.GetID(), // Return the Workflow ID for tracking
 		ErrorMessage: "",
 	}, nil
+}
+
+// replaceContent points the document at its new content: it stops the ingestion of the old content,
+// deletes the old content's chunks, points the document at the new content, and removes the old file.
+// The worker stores no sections or chunks for a job that isn't the document's job any more
+func (s *DocumentsServer) replaceContent(ctx context.Context, existing postgres.Document, document postgres.Document) error {
+	if existing.JobID != "" {
+		if err := s.jobsRepo.Cancel(ctx, existing.JobID); err != nil {
+			return status.Errorf(codes.Internal, "failed to cancel the ingestion of document %s: %v", document.ID, err)
+		}
+	}
+	// the cancelled ingestion stores no more chunks, and removes any it stores while stopping
+	if _, err := s.deleteChunks(ctx, document.IndexName, document.ID); err != nil {
+		return err
+	}
+	if err := s.documentsRepo.Replace(ctx, document); err != nil {
+		return status.Errorf(codes.Internal, "failed to replace document %s: %v", document.ID, err)
+	}
+	if existing.ObjectKey != "" && existing.ObjectKey != document.ObjectKey {
+		s.removeObject(existing.ObjectKey)
+	}
+	return nil
 }
 
 func (s *DocumentsServer) tooLarge(filename string) error {
@@ -377,19 +420,9 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 		}
 	}
 
-	options := client.StartWorkflowOptions{
-		ID:        uuid.New().String(),
-		TaskQueue: utils.GetIngestionDocumentQueueName(),
-	}
-	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID}
-	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.DeleteDocumentWorkflow, config)
+	chunksDeleted, err := s.deleteChunks(ctx, indexName, documentID)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to start the delete workflow: %v", err)
-	}
-
-	var result workflows.DeleteDocumentWorkflowResult
-	if err := we.Get(ctx, &result); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to delete the chunks of document %s: %v", documentID, err)
+		return nil, err
 	}
 
 	if err := s.documentsRepo.Delete(ctx, indexName, documentID); err != nil {
@@ -401,7 +434,7 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 
 	return &gogiv1.DeleteDocumentResponse{
 		Response:      "Document deleted",
-		ChunksDeleted: int32(result.ChunksDeleted),
+		ChunksDeleted: int32(chunksDeleted),
 	}, nil
 }
 
@@ -495,6 +528,25 @@ func (s *DocumentsServer) DownloadDocument(req *gogiv1.DownloadDocumentRequest,
 			return status.Errorf(codes.Internal, "failed to read the file of document %s: %v", document.ID, readErr)
 		}
 	}
+}
+
+// deleteChunks deletes every chunk of the document from the vector store
+func (s *DocumentsServer) deleteChunks(ctx context.Context, indexName string, documentID string) (int, error) {
+	options := client.StartWorkflowOptions{
+		ID:        uuid.New().String(),
+		TaskQueue: utils.GetIngestionDocumentQueueName(),
+	}
+	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID}
+	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.DeleteDocumentWorkflow, config)
+	if err != nil {
+		return 0, status.Errorf(codes.Internal, "failed to start the delete workflow: %v", err)
+	}
+
+	var result workflows.DeleteDocumentWorkflowResult
+	if err := we.Get(ctx, &result); err != nil {
+		return 0, status.Errorf(codes.Internal, "failed to delete the chunks of document %s: %v", documentID, err)
+	}
+	return result.ChunksDeleted, nil
 }
 
 func toDocumentSection(section postgres.DocumentSection) *gogiv1.DocumentSection {

@@ -23,14 +23,17 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         self._chroma_client.delete_collection(index_name)
 
     @override
-    def delete_by_document(self, index_name: str, document_id: str) -> int:
-        """Delete chunks and document metadata for a document. Returns chunks deleted."""
+    def delete_by_document(self, index_name: str, document_id: str, job_id: str | None = None) -> int:
+        """Delete the chunks of a document, or only those a job stored. Returns chunks deleted."""
         try:
             collection = self._chroma_client.get_collection(index_name)
         except NotFoundError:
             return 0
 
-        ids = collection.get(where={"document_id": document_id}, include=[])["ids"]
+        where = {"document_id": document_id}
+        if job_id:
+            where = {"$and": [{"document_id": document_id}, {"job_id": job_id}]}
+        ids = collection.get(where=where, include=[])["ids"]
         if ids:
             collection.delete(ids=ids)
         return len(ids)

@@ -88,7 +88,7 @@ def ingest_document(req):
         words = sum(len(section.content.split()) for section in extracted_document.sections)
         db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
                                  chunk_count=len(chunks), page_count=extracted_document.page_count,
-                                 word_count=words)
+                                 word_count=words, job_id=request.job_id)
     except IngestionCancelled as e:
         # the job is CANCELLED already, or its document went with its index; retrying can't help
         logger.info(f"Job {request.job_id} stopped: {e}")

@@ -83,6 +83,24 @@ func TestDocumentsRepository(t *testing.T) {
 		t.Errorf("status = %q, want none", document.Status)
 	}
 
+	replacingJob := uuid.New().String()
+	if err := jobs.Create(ctx, Job{ID: replacingJob, DocumentID: "fd-schemes", Status: utils.JobPending, JobType: string(utils.DocumentIngestionJob)}); err != nil {
+		t.Fatal(err)
+	}
+	err = repo.Replace(ctx, Document{ID: "fd-schemes", IndexName: "maria--aeronautics", Filename: "fd-schemes.md",
+		ContentType: "text/markdown", Metadata: map[string]string{"subject": "numerical-methods"}, JobID: replacingJob,
+		SizeBytes: 99, ObjectKey: "maria--aeronautics/fd-schemes/v2"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replaced, _ := repo.Get(ctx, "maria--aeronautics", "fd-schemes"); replaced.Filename != "fd-schemes.md" ||
+		replaced.JobID != replacingJob || replaced.SizeBytes != 99 || replaced.ObjectKey != "maria--aeronautics/fd-schemes/v2" {
+		t.Errorf("replaced = %+v", replaced)
+	}
+	if err := repo.Replace(ctx, Document{ID: "missing", IndexName: "maria--aeronautics"}); !errors.Is(err, utils.ErrDocumentNotFound) {
+		t.Errorf("replacing a missing document: expected ErrDocumentNotFound, got %v", err)
+	}
+
 	if err := repo.Delete(ctx, "maria--aeronautics", "fe-basics"); err != nil {
 		t.Fatal(err)
 	}
