@@ -40,6 +40,8 @@ type LLMProviderRouter struct {
 	resilience ResilienceConfig
 	// breaker stops calling models that keep failing; nil if none is set
 	breaker *utils.CircuitBreaker
+	// images reads the images messages refer to by document; nil if they can't be read
+	images ImageFetcher
 
 	// sleep waits between retries and jitter spreads the waits; replaced in tests
 	sleep  func(ctx context.Context, d time.Duration) error
@@ -169,6 +171,9 @@ func (p *LLMProviderRouter) Run(ctx context.Context, req *gogiv1.LLMRunRequest) 
 	if err != nil {
 		return LLM.LLModelResponse{}, err
 	}
+	if messages, err = p.resolveImages(ctx, messages); err != nil {
+		return LLM.LLModelResponse{}, err
+	}
 
 	var response LLM.LLModelResponse
 	err = p.callWithFallback(ctx, req, func(ctx context.Context, provider ModelProvider, model FallbackModel) error {
@@ -195,6 +200,9 @@ func (p *LLMProviderRouter) RunStream(req *gogiv1.LLMRunRequest,
 
 	messages, config, err := requestInput(req)
 	if err != nil {
+		return err
+	}
+	if messages, err = p.resolveImages(stream.Context(), messages); err != nil {
 		return err
 	}
 

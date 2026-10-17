@@ -42,6 +42,16 @@ come back in the OpenAI format whatever the provider. The model service doesn't 
 them, usually through the [tool service](tool_service.md#tools-for-a-model), and runs the model again with the
 results as tool messages.
 
+### Images
+
+A user message can carry images with its text, as `parts`: text and images in order, after the message's `content`.
+An image is its bytes, or a document of the platform's, e.g. a photo uploaded with `store_only`, which the model
+service reads from the documents service, so a large image needn't travel in the request. Its media type, one of
+`image/jpeg`, `image/png`, `image/gif` and `image/webp`, is worked out from the image if it isn't given. The model
+service sends the images to Anthropic as image blocks and to OpenAI and OpenAI-compatible models, such as vision
+models served by Ollama, as data URLs. The gateway and the model service take messages of up to
+`GOGI_MAX_MESSAGE_MB` (32 MB by default).
+
 ### JSON answers
 
 A request's `response_format` asks for an answer that is a JSON object: `json_object` for any object, or

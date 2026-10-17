@@ -5,6 +5,7 @@ import (
 	"gogi/gogi/services/gateway/impl"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
+	"google.golang.org/grpc"
 	"net"
 
 	log "github.com/sirupsen/logrus"
@@ -91,7 +92,9 @@ func main() {
 	}
 	defer closeTelemetry()
 
-	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry), telemetry.ServerOptions()...)
+	// requests to models can carry images, larger than gRPC's default message size
+	serverOptions := append(telemetry.ServerOptions(), grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))
+	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry), serverOptions...)
 
 	lis, err := net.Listen(PROTOCOL, PORT)
 	if err != nil {

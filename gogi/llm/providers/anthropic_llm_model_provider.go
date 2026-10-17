@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -356,7 +357,22 @@ func anthropicContent(msg llm.LLMMessage) (anthropic.MessageParamRole, []anthrop
 
 	switch msg.Role {
 	case llm.RoleUser:
-		return anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(msg.Content)}, nil
+		if len(msg.Parts) == 0 {
+			return anthropic.MessageParamRoleUser, []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(msg.Content)}, nil
+		}
+		blocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.Parts)+1)
+		if msg.Content != "" {
+			blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+		}
+		for _, part := range msg.Parts {
+			if part.Image == nil {
+				blocks = append(blocks, anthropic.NewTextBlock(part.Text))
+				continue
+			}
+			encoded := base64.StdEncoding.EncodeToString(part.Image.Data)
+			blocks = append(blocks, anthropic.NewImageBlockBase64(part.Image.MediaType, encoded))
+		}
+		return anthropic.MessageParamRoleUser, blocks, nil
 
 	case llm.RoleAssistant:
 		blocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.ToolCalls)+1)
