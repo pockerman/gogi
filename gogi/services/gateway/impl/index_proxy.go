@@ -37,3 +37,11 @@ func (p *IndexesProxy) DeleteIndexByName(ctx context.Context, req *gogiv1.Delete
 func (p *IndexesProxy) DeleteOwnerIndexes(ctx context.Context, req *gogiv1.DeleteOwnerIndexesRequest) (*gogiv1.DeleteIndexResponse, error) {
 	return p.proxy.ForwardDeleteOwnerIndexes(ctx, req)
 }
+
+func (p *IndexesProxy) SetIndexMember(ctx context.Context, req *gogiv1.SetIndexMemberRequest) (*gogiv1.IndexResponse, error) {
+	return p.proxy.ForwardSetIndexMember(ctx, req)
+}
+
+func (p *IndexesProxy) RemoveIndexMember(ctx context.Context, req *gogiv1.RemoveIndexMemberRequest) (*gogiv1.IndexResponse, error) {
+	return p.proxy.ForwardRemoveIndexMember(ctx, req)
+}

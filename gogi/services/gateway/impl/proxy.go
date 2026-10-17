@@ -278,6 +278,36 @@ func (p *GenericGRPCProxy) ForwardDeleteOwnerIndexes(
 	return client.DeleteOwnerIndexes(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardSetIndexMember(
+	ctx context.Context,
+	req *gogiv1.SetIndexMemberRequest,
+) (*gogiv1.IndexResponse, error) {
+
+	conn, err := p.buildConnection("indexes")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.SetIndexMember(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRemoveIndexMember(
+	ctx context.Context,
+	req *gogiv1.RemoveIndexMemberRequest,
+) (*gogiv1.IndexResponse, error) {
+
+	conn, err := p.buildConnection("indexes")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := gogiv1.NewIndexServiceClient(conn)
+	return client.RemoveIndexMember(ctx, req)
+}
+
 // ======= LLMs ==========
 
 func (p *GenericGRPCProxy) ForwardLLMRun(ctx context.Context, req *gogiv1.LLMRunRequest) (*gogiv1.LLMRunResponse, error) {

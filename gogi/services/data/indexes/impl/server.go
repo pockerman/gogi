@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"errors"
+	"sort"
 	"time"
 
 	gogiv1 "gogi/gogi/gogi/v1"
@@ -47,12 +48,14 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 	// of the Postgres row (e.g. the vector store lost data on its own).
 	index, err := s.gogiIndexRepo.GetIndexByName(indexName)
 	if err != nil {
-		if !errors.Is(err, utils.ErrJobNotFound) {
+		if !errors.Is(err, utils.ErrIndexNotFound) {
 			return nil, status.Errorf(codes.Internal, "failed to look up index: %v", err)
 		}
-		index = postgres.GogiIndex{Name: indexName, Owner: owner, Id: uuid.New().String()}
-		if err := s.gogiIndexRepo.Create(ctx, index); err != nil {
+		if err := s.gogiIndexRepo.Create(ctx, postgres.GogiIndex{Name: indexName, Owner: owner, Id: uuid.New().String()}); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to create index: %v", err)
+		}
+		if index, err = s.gogiIndexRepo.GetIndexByName(indexName); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to read the new index: %v", err)
 		}
 	}
 
@@ -60,19 +63,19 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 		return nil, status.Errorf(codes.Internal, "failed to create vector store collection: %v", err)
 	}
 
-	return &gogiv1.IndexResponse{
-		IndexName:     indexName,
-		Owner:         index.Owner,
-		Id:            index.Id,
-		CreatedAt:     time.Now().Format(time.RFC3339),
-		LastUpdatedAt: time.Now().Format(time.RFC3339),
-	}, nil
+	return toIndexResponse(index), nil
 }
 
 func (s *IndexServer) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRequest) (*gogiv1.ListIndexesResponse, error) {
 	log.Infof("Listing indexes")
 
-	indexes, err := s.gogiIndexRepo.GetIndexesForOwner(req.GetOwnerName())
+	var indexes []postgres.GogiIndex
+	var err error
+	if req.GetMember() != "" {
+		indexes, err = s.gogiIndexRepo.GetIndexesForMember(req.GetMember())
+	} else {
+		indexes, err = s.gogiIndexRepo.GetIndexesForOwner(req.GetOwnerName())
+	}
 
 	if err != nil {
 		return nil, status.Errorf(
@@ -87,13 +90,7 @@ func (s *IndexServer) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRe
 	}
 
 	for _, idx := range indexes {
-		resp.Indexes = append(resp.Indexes, &gogiv1.IndexResponse{
-			Id:            idx.Id,
-			IndexName:     idx.Name,
-			Owner:         idx.Owner,
-			CreatedAt:     idx.CreatedAt.Format(time.RFC3339),
-			LastUpdatedAt: idx.LastUpdatedAt.Format(time.RFC3339),
-		})
+		resp.Indexes = append(resp.Indexes, toIndexResponse(idx))
 	}
 
 	return resp, nil
@@ -102,29 +99,98 @@ func (s *IndexServer) ListIndexes(ctx context.Context, req *gogiv1.ListIndexesRe
 func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexByNameRequest) (*gogiv1.IndexResponse, error) {
 	log.Infof("Getting index %s", req.GetIndexName())
 
-	index, _ := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
-
-	return &gogiv1.IndexResponse{
-		IndexName:     index.Name,
-		Id:            index.Id,
-		Owner:         index.Owner,
-		CreatedAt:     index.CreatedAt.Format(time.RFC3339),
-		LastUpdatedAt: index.LastUpdatedAt.Format(time.RFC3339),
-	}, nil
+	index, err := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
+	if err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	return toIndexResponse(index), nil
 }
 
 func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexByIdRequest) (*gogiv1.IndexResponse, error) {
 	log.Infof("Getting index %s", req.GetIndexId())
 
-	index, _ := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+	index, err := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+	if err != nil {
+		return nil, indexError(err, req.GetIndexId())
+	}
+	return toIndexResponse(index), nil
+}
+
+func (s *IndexServer) SetIndexMember(ctx context.Context, req *gogiv1.SetIndexMemberRequest) (*gogiv1.IndexResponse, error) {
+	log.Infof("Giving %s the role %s on index %s", req.GetUser(), req.GetRole(), req.GetIndexName())
+
+	role, ok := fromProtoRole[req.GetRole()]
+	if !ok {
+		return nil, status.Errorf(codes.InvalidArgument, "a member needs a role")
+	}
+	if req.GetUser() == "" {
+		return nil, status.Errorf(codes.InvalidArgument, "a member needs a user")
+	}
+
+	index, err := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
+	if err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	if err := s.gogiIndexRepo.SetMember(ctx, index.Id, req.GetUser(), role); err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	return s.GetIndexByName(ctx, &gogiv1.GetIndexByNameRequest{IndexName: req.GetIndexName()})
+}
+
+func (s *IndexServer) RemoveIndexMember(ctx context.Context, req *gogiv1.RemoveIndexMemberRequest) (*gogiv1.IndexResponse, error) {
+	log.Infof("Removing %s from index %s", req.GetUser(), req.GetIndexName())
+
+	index, err := s.gogiIndexRepo.GetIndexByName(req.GetIndexName())
+	if err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	if err := s.gogiIndexRepo.RemoveMember(ctx, index.Id, req.GetUser()); err != nil {
+		return nil, indexError(err, req.GetIndexName())
+	}
+	return s.GetIndexByName(ctx, &gogiv1.GetIndexByNameRequest{IndexName: req.GetIndexName()})
+}
+
+var fromProtoRole = map[gogiv1.IndexMemberRole]postgres.IndexRole{
+	gogiv1.IndexMemberRole_INDEX_MEMBER_ROLE_OWNER:  postgres.IndexRoleOwner,
+	gogiv1.IndexMemberRole_INDEX_MEMBER_ROLE_READER: postgres.IndexRoleReader,
+}
+
+var toProtoRole = map[postgres.IndexRole]gogiv1.IndexMemberRole{
+	postgres.IndexRoleOwner:  gogiv1.IndexMemberRole_INDEX_MEMBER_ROLE_OWNER,
+	postgres.IndexRoleReader: gogiv1.IndexMemberRole_INDEX_MEMBER_ROLE_READER,
+}
+
+func toIndexResponse(index postgres.GogiIndex) *gogiv1.IndexResponse {
+	users := make([]string, 0, len(index.Members))
+	for user := range index.Members {
+		users = append(users, user)
+	}
+	sort.Strings(users)
+
+	members := make([]*gogiv1.IndexMember, 0, len(users))
+	for _, user := range users {
+		members = append(members, &gogiv1.IndexMember{User: user, Role: toProtoRole[index.Members[user]]})
+	}
 
 	return &gogiv1.IndexResponse{
-		IndexName:     index.Name,
 		Id:            index.Id,
+		IndexName:     index.Name,
 		Owner:         index.Owner,
 		CreatedAt:     index.CreatedAt.Format(time.RFC3339),
 		LastUpdatedAt: index.LastUpdatedAt.Format(time.RFC3339),
-	}, nil
+		Members:       members,
+	}
+}
+
+func indexError(err error, index string) error {
+	switch {
+	case errors.Is(err, utils.ErrIndexNotFound):
+		return status.Errorf(codes.NotFound, "index %s not found", index)
+	case errors.Is(err, utils.ErrLastIndexOwner):
+		return status.Errorf(codes.FailedPrecondition, "%v", err)
+	default:
+		return status.Errorf(codes.Internal, "index %s: %v", index, err)
+	}
 }
 
 func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {

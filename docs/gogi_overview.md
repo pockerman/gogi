@@ -139,7 +139,10 @@ first. See [session service](session_service.md).
 
 The indexes and documents services hold the knowledge an application retrieves from.
 
-- **Indexes:** an index is a named collection of documents, owned by a user or team.
+- **Indexes:** an index is a named collection of documents. Its creator is its first owner, and it can be shared
+  with other users. Each member is an owner, who may change the index's documents and members, or a reader, who
+  may read and search them. An index always keeps at least one owner. The platform records the members; the
+  application checks a caller's role before it acts on their behalf.
 - **Ingestion:** documents are ingested asynchronously. An ingestion job, run by workers on Temporal, splits a
   document into chunks, embeds them, and stores them in the vector store, while the application follows the job's
   progress.
