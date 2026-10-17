@@ -1,6 +1,9 @@
 package utils
 
-import "os"
+import (
+	"os"
+	"strconv"
+)
 
 const DEFAULT_DB_URL string = "postgres://gogi:gogi@postgres:5432/gogi"
 const DEFAULT_INGESTION_DOCUMENT_QUEUE_NAME = "ingestion-document-queue"
@@ -56,4 +59,14 @@ func GetVectorDBStorageConnectionDetails() (VectorDBConnectionDetails, error) {
 	return VectorDBConnectionDetails{GOGI_VECTOR_DB_TYPE: dbType,
 		GOGI_VECTOR_DB_HOST: dbHost, GOGI_VECTOR_DB_PORT: dbPort}, nil
 
+}
+
+// MaxMessageBytes is the largest gRPC message a service takes (GOGI_MAX_MESSAGE_MB, 32 by default): requests
+// to models can carry images, which don't fit gRPC's default of 4 MB
+func MaxMessageBytes() int {
+	megabytes, err := strconv.Atoi(GetEnv("GOGI_MAX_MESSAGE_MB", "32"))
+	if err != nil || megabytes <= 0 {
+		megabytes = 32
+	}
+	return megabytes * 1024 * 1024
 }

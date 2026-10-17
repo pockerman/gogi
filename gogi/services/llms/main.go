@@ -92,6 +92,14 @@ func main() {
 	}
 	modelRouter.SetCircuitBreaker(breaker)
 
+	// images messages refer to by document are read from the documents service, through the gateway
+	gatewayURL := utils.GetEnv("GOGI_GATEWAY_URL", "gateway:50051")
+	imageFetcher, err := impl.DocumentImageFetcher(gatewayURL)
+	if err != nil {
+		log.Fatalf("failed to connect to the gateway at %s: %v", gatewayURL, err)
+	}
+	modelRouter.SetImageFetcher(imageFetcher)
+
 	// the credentials of registered models, e.g. in AWS Secrets Manager or HashiCorp Vault
 	credentialStore, err := credentials.NewCredentialStoreFromEnv(context.Background())
 	if err != nil {
@@ -108,7 +116,8 @@ func main() {
 	}
 	defer closeTelemetry()
 
-	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
+	// requests can carry images, larger than gRPC's default message size
+	grpcServer := grpc.NewServer(append(telemetry.ServerOptions(), grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))...)
 	// the prices of the models, to put a cost on every call
 	prices, err := pricing.Load(utils.GetEnv("GOGI_MODEL_PRICES_FILE", ""))
 	if err != nil {

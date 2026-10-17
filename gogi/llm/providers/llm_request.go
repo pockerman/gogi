@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"regexp"
 
 	gogiv1 "gogi/gogi/gogi/v1"
@@ -57,6 +58,17 @@ func convertLLMMessages(messages []*gogiv1.LLMMessage) ([]LLM.LLMMessage, error)
 		if message.Role != LLM.RoleAssistant && len(msg.GetToolCalls()) > 0 {
 			return nil, invalidRequest("message %d: only assistant messages have tool calls", i)
 		}
+
+		if len(msg.GetParts()) > 0 && message.Role != LLM.RoleUser {
+			return nil, invalidRequest("message %d: only user messages have parts, e.g. images", i)
+		}
+		for j, part := range msg.GetParts() {
+			converted, err := convertPart(part)
+			if err != nil {
+				return nil, invalidRequest("message %d, part %d: %v", i, j, err)
+			}
+			message.Parts = append(message.Parts, converted)
+		}
 		converted[i] = message
 	}
 	return converted, nil
@@ -84,6 +96,47 @@ func convertResponseFormat(format *gogiv1.ResponseFormat) (*LLM.ResponseFormat, 
 		return nil, invalidRequest("unsupported response format %q, the formats are text, %s and %s",
 			format.GetType(), LLM.ResponseFormatJSONObject, LLM.ResponseFormatJSONSchema)
 	}
+}
+
+// convertPart converts and checks a part of a message's content
+func convertPart(part *gogiv1.ContentPart) (LLM.ContentPart, error) {
+
+	image := part.GetImage()
+	if image == nil {
+		if part.GetText() == "" {
+			return LLM.ContentPart{}, errors.New("a part is text or an image")
+		}
+		return LLM.ContentPart{Text: part.GetText()}, nil
+	}
+
+	converted := &LLM.Image{Data: image.GetData(), MediaType: image.GetMediaType()}
+	if reference := image.GetDocument(); reference != nil {
+		if reference.GetIndexName() == "" || reference.GetDocumentId() == "" {
+			return LLM.ContentPart{}, errors.New("an image's document needs its index_name and document_id")
+		}
+		converted.Data = nil
+		converted.Document = &LLM.DocumentReference{IndexName: reference.GetIndexName(), DocumentID: reference.GetDocumentId()}
+	} else if len(converted.Data) == 0 {
+		return LLM.ContentPart{}, errors.New("an image needs its data or a document")
+	}
+	if converted.Document == nil {
+		if err := checkImage(converted); err != nil {
+			return LLM.ContentPart{}, err
+		}
+	}
+	return LLM.ContentPart{Image: converted}, nil
+}
+
+// checkImage works out an image's media type if it's not given, and checks every provider takes it
+func checkImage(image *LLM.Image) error {
+	if image.MediaType == "" {
+		image.MediaType = http.DetectContentType(image.Data)
+	}
+	if !LLM.ImageMediaTypes[image.MediaType] {
+		return fmt.Errorf("unsupported image type %q, the types are image/jpeg, image/png, image/gif and image/webp",
+			image.MediaType)
+	}
+	return nil
 }
 
 // convertTools converts and checks the tools of a request

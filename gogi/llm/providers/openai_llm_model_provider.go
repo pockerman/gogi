@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -103,8 +104,9 @@ type openAIJSONSchema struct {
 // openAIMessage is a message of the conversation. The content of an assistant
 // message that only calls tools is null
 type openAIMessage struct {
-	Role       string           `json:"role"`
-	Content    *string          `json:"content"`
+	Role string `json:"role"`
+	// a string, null for an assistant message that only calls tools, or a list of text and image parts
+	Content    any              `json:"content"`
 	Name       string           `json:"name,omitempty"`
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
 	ToolCallId string           `json:"tool_call_id,omitempty"`
@@ -484,14 +486,43 @@ func (provider *OpenAILLMModelProvider) preparePayload(messages []llm.LLMMessage
 	return json.Marshal(payload)
 }
 
+// openAIContentPart is a part of a message's content: text, or an image as a data URL
+type openAIContentPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+
+type openAIImageURL struct {
+	URL string `json:"url"`
+}
+
+func openAIContent(message llm.LLMMessage) any {
+	if len(message.Parts) == 0 {
+		return message.Content
+	}
+	parts := make([]openAIContentPart, 0, len(message.Parts)+1)
+	if message.Content != "" {
+		parts = append(parts, openAIContentPart{Type: "text", Text: message.Content})
+	}
+	for _, part := range message.Parts {
+		if part.Image == nil {
+			parts = append(parts, openAIContentPart{Type: "text", Text: part.Text})
+			continue
+		}
+		url := "data:" + part.Image.MediaType + ";base64," + base64.StdEncoding.EncodeToString(part.Image.Data)
+		parts = append(parts, openAIContentPart{Type: "image_url", ImageURL: &openAIImageURL{URL: url}})
+	}
+	return parts
+}
+
 func toOpenAIMessages(messages []llm.LLMMessage) []openAIMessage {
 
 	converted := make([]openAIMessage, 0, len(messages))
 	for _, message := range messages {
-		content := message.Content
 		converted = append(converted, openAIMessage{
 			Role:       message.Role,
-			Content:    &content,
+			Content:    openAIContent(message),
 			ToolCallId: message.ToolCallId,
 		})
 

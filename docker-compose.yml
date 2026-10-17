@@ -188,6 +188,9 @@ services:
       - postgres
       - chromadb
       - vault
+    # models served on the host, e.g. by Ollama, are registered at host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   prompts:
     build:
       context: .
