@@ -27,7 +27,8 @@ type ObjectStore interface {
 	// Put stores the content and returns its size; a size of -1 means unknown
 	Put(ctx context.Context, bucket, object string, content io.Reader, size int64, contentType string) (int64, error)
 	Remove(ctx context.Context, bucket, object string) error
-	Get(ctx context.Context, bucket, object string) (io.ReadCloser, error)
+	// Get reads from offset, length bytes, or to the end if length is 0
+	Get(ctx context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error)
 }
 
 // WorkflowStarter starts Temporal workflows; client.Client is one
@@ -158,6 +159,21 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 			return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to register the document: %v", err)
+	}
+
+	// a file kept but not ingested, e.g. a video, is ready at once
+	if req.GetStoreOnly() {
+		if err := s.jobsRepo.UpdateStatus(ctx, job.ID, utils.JobCompleted); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to complete the job of document %s: %v", documentID, err)
+		}
+		return &gogiv1.IngestDocumentJobResponse{
+			IndexName:  indexName,
+			DocumentId: documentID,
+			Filename:   req.GetFilename(),
+			Status:     string(utils.JobCompleted),
+			Progress:   100.0,
+			JobId:      job.ID,
+		}, nil
 	}
 
 	// 3. map the request to the workflow's config
@@ -445,7 +461,14 @@ func (s *DocumentsServer) DownloadDocument(req *gogiv1.DownloadDocumentRequest,
 		return status.Errorf(codes.FailedPrecondition, "document %s was ingested before uploads were kept; it has no file", document.ID)
 	}
 
-	file, err := s.objects.Get(ctx, documents.Bucket, document.ObjectKey)
+	if req.GetOffset() < 0 || req.GetLength() < 0 {
+		return status.Error(codes.InvalidArgument, "offset and length must not be negative")
+	}
+	if req.GetOffset() > 0 && req.GetOffset() >= document.SizeBytes {
+		return status.Errorf(codes.OutOfRange, "offset %d is past the end of document %s (%d bytes)",
+			req.GetOffset(), document.ID, document.SizeBytes)
+	}
+	file, err := s.objects.Get(ctx, documents.Bucket, document.ObjectKey, req.GetOffset(), req.GetLength())
 	if err != nil {
 		return status.Errorf(codes.Internal, "failed to open the file of document %s: %v", document.ID, err)
 	}

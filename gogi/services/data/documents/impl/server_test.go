@@ -50,10 +50,14 @@ func (f *fakeObjects) Remove(_ context.Context, bucket, object string) error {
 	return nil
 }
 
-func (f *fakeObjects) Get(_ context.Context, bucket, object string) (io.ReadCloser, error) {
+func (f *fakeObjects) Get(_ context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error) {
 	data, ok := f.get(bucket + "/" + object)
 	if !ok {
 		return nil, errors.New("no such object")
+	}
+	data = data[offset:]
+	if length > 0 && length < int64(len(data)) {
+		data = data[:length]
 	}
 	return io.NopCloser(bytes.NewReader(data)), nil
 }
@@ -402,5 +406,68 @@ func TestDownloadADocument(t *testing.T) {
 	}
 	if downloaded.String() != content || parts != 3 {
 		t.Errorf("downloaded %d bytes in %d parts, want %d in 3", downloaded.Len(), parts, len(content))
+	}
+}
+
+func TestAStoreOnlyDocumentIsReadyAtOnceWithoutIngestion(t *testing.T) {
+	service := newTestService(t, 1024)
+	video := &gogiv1.UploadDocumentRequest{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{
+		IndexName: "maria--aeronautics", DocumentId: "lecture-3", Filename: "lecture-3.mp4", ContentType: "video/mp4", StoreOnly: true}}}
+
+	response, err := upload(t, service.client, video, chunk("not really a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.GetStatus() != string(utils.JobCompleted) || len(service.workflows.ingestion) != 0 {
+		t.Errorf("status = %s, workflows = %d; want COMPLETED without ingestion", response.GetStatus(), len(service.workflows.ingestion))
+	}
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "lecture-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GetDocument().GetStatus() != string(utils.JobCompleted) {
+		t.Errorf("document status = %s, want COMPLETED", document.GetDocument().GetStatus())
+	}
+	if content, _ := service.objects.get("gogi-documents/maria--aeronautics/lecture-3"); string(content) != "not really a video" {
+		t.Errorf("stored content = %q", content)
+	}
+}
+
+func TestDownloadPartOfADocument(t *testing.T) {
+	service := newTestService(t, 1024)
+	if _, err := upload(t, service.client, info("fem-notes"), chunk("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	download := func(offset, length int64) (string, error) {
+		stream, err := service.client.DownloadDocument(context.Background(), &gogiv1.DownloadDocumentRequest{
+			IndexName: "maria--aeronautics", DocumentId: "fem-notes", Offset: offset, Length: length})
+		if err != nil {
+			return "", err
+		}
+		var content bytes.Buffer
+		for {
+			message, err := stream.Recv()
+			if err == io.EOF {
+				return content.String(), nil
+			}
+			if err != nil {
+				return "", err
+			}
+			content.Write(message.GetChunk())
+		}
+	}
+
+	tests := []struct {
+		offset, length int64
+		want           string
+	}{{0, 0, "0123456789"}, {3, 4, "3456"}, {7, 0, "789"}, {8, 10, "89"}}
+	for _, test := range tests {
+		if got, err := download(test.offset, test.length); err != nil || got != test.want {
+			t.Errorf("download(%d, %d) = %q, %v; want %q", test.offset, test.length, got, err, test.want)
+		}
+	}
+	if _, err := download(10, 0); status.Code(err) != codes.OutOfRange {
+		t.Errorf("an offset past the end: err = %v, want OutOfRange", err)
 	}
 }

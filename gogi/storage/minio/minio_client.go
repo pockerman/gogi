@@ -173,7 +173,18 @@ func (minioClient *GogiMinIOClient) RemovePrefix(ctx context.Context, bucket, pr
 	return firstErr
 }
 
-// Get opens the object for reading; reading an object that doesn't exist fails
-func (minioClient *GogiMinIOClient) Get(ctx context.Context, bucket, object string) (io.ReadCloser, error) {
-	return minioClient.client.GetObject(ctx, bucket, object, minio.GetObjectOptions{})
+// Get opens the object for reading, from offset, length bytes of it, or to its end if length is 0;
+// reading an object that doesn't exist fails
+func (minioClient *GogiMinIOClient) Get(ctx context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error) {
+	options := minio.GetObjectOptions{}
+	if offset > 0 || length > 0 {
+		end := int64(0)
+		if length > 0 {
+			end = offset + length - 1
+		}
+		if err := options.SetRange(offset, end); err != nil {
+			return nil, err
+		}
+	}
+	return minioClient.client.GetObject(ctx, bucket, object, options)
 }

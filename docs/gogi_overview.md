@@ -160,7 +160,9 @@ The indexes and documents services hold the knowledge an application retrieves f
   (or its pages, if it has none), or the whole of a plain text file. The documents service lists a document's
   sections and returns a section's text, with its subsections' if asked (`ListDocumentSections`,
   `GetDocumentSection`). Every chunk records its section, and the uploaded file can be downloaded
-  (`DownloadDocument`).
+  (`DownloadDocument`), whole or a range of its bytes, e.g. for a video player seeking.
+- **Stored files:** a file can be kept without being ingested (`store_only`), e.g. a video: it is registered and
+  ready at once, and has no chunks or sections.
 - **Search:** the documents service searches an index for the chunks relevant to a query.
 
 ### Tool service
