@@ -1,7 +1,11 @@
+from contextlib import contextmanager
+
 from psycopg import connect
 
 
 class PostgresDB:
+    """The worker's database. Activities run in threads of their own, so every operation has a connection of its
+    own: threads sharing one would interleave their transactions."""
 
     def __init__(
         self,
@@ -11,17 +15,15 @@ class PostgresDB:
         user: str,
         password: str,
     ):
-        self._conn = connect(
-            host=host,
-            port=port,
-            dbname=database,
-            user=user,
-            password=password,
-            autocommit=True,
-        )
+        self._conninfo = {"host": host, "port": port, "dbname": database, "user": user, "password": password}
+
+    @contextmanager
+    def _connection(self):
+        with connect(**self._conninfo, autocommit=True) as connection:
+            yield connection
 
     def close(self):
-        self._conn.close()
+        pass
 
     def update_job_status(
     self,
@@ -29,7 +31,7 @@ class PostgresDB:
     status: str,
     progress: float,
     error_message: str | None = None, ):
-        with self._conn.cursor() as cur:
+        with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
                 UPDATE jobs
@@ -46,7 +48,7 @@ class PostgresDB:
 
     def update_document_stats(self, index_name: str, document_id: str, chunk_count: int, page_count: int,
                               word_count: int):
-        with self._conn.cursor() as cur:
+        with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
                 UPDATE gogi_documents
@@ -58,7 +60,7 @@ class PostgresDB:
 
     def replace_sections(self, index_name: str, document_id: str, sections) -> None:
         """store the document's sections, replacing any an earlier attempt stored"""
-        with self._conn.transaction(), self._conn.cursor() as cur:
+        with self._connection() as connection, connection.transaction(), connection.cursor() as cur:
             cur.execute(
                 """
                 DELETE FROM gogi_document_sections
@@ -80,7 +82,7 @@ class PostgresDB:
     def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
         """whether the ingestion job isn't cancelled and its document is still registered; deleting a
         document cancels its job, and deleting an index deletes its documents"""
-        with self._conn.cursor() as cur:
+        with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
                 SELECT
