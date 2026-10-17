@@ -524,3 +524,27 @@ func TestReplacingNeedsAnExistingDocument(t *testing.T) {
 		t.Errorf("err = %v, objects = %d; want NotFound and nothing stored", err, len(service.objects.objects))
 	}
 }
+
+func TestSearchingAnUnknownIndexIsNotFound(t *testing.T) {
+	service := newTestService(t, 1024)
+
+	_, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
+		IndexName: "nobody--nothing", Query: "stiffness matrix", TopK: 3,
+	})
+
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("err = %v; want NotFound", err)
+	}
+}
+
+func TestSearchingAnIndexWithNothingIngestedFindsNothing(t *testing.T) {
+	service := newTestService(t, 1024)
+
+	response, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
+		IndexName: "maria--aeronautics", Query: "stiffness matrix", TopK: 3,
+	})
+
+	if err != nil || len(response.GetChunks()) != 0 {
+		t.Errorf("chunks = %v, err = %v; want none", response.GetChunks(), err)
+	}
+}

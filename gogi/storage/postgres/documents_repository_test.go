@@ -39,6 +39,14 @@ func TestDocumentsRepository(t *testing.T) {
 		}
 	}
 
+	t.Run("an index exists once created", func(t *testing.T) {
+		for name, want := range map[string]bool{"maria--aeronautics": true, "nobody--nothing": false} {
+			if exists, err := repo.IndexExists(ctx, name); err != nil || exists != want {
+				t.Errorf("IndexExists(%s) = %v, %v; want %v", name, exists, err, want)
+			}
+		}
+	})
+
 	if err := repo.Create(ctx, Document{ID: "x", IndexName: "missing", Filename: "x.txt"}); !errors.Is(err, utils.ErrIndexNotFound) {
 		t.Errorf("create in a missing index: expected ErrIndexNotFound, got %v", err)
 	}

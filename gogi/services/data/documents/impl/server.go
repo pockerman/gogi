@@ -314,6 +314,15 @@ func (r *limitedReader) Read(p []byte) (int, error) {
 
 func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
 
+	// an unknown index is not found; an index with nothing ingested yet has nothing to find
+	exists, err := s.documentsRepo.IndexExists(ctx, req.GetIndexName())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find index %s: %v", req.GetIndexName(), err)
+	}
+	if !exists {
+		return nil, status.Errorf(codes.NotFound, "index %s not found", req.GetIndexName())
+	}
+
 	config := workflows.SearchDocumentsWorkflowConfig{
 		IndexName:        req.GetIndexName(),
 		Query:            req.GetQuery(),

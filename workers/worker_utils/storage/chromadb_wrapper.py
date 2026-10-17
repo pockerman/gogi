@@ -89,7 +89,11 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         top_k: int = 5,
         metadata_filters: Optional[Dict[str, str]] = None,
         score_threshold: Optional[float] = None) -> List[VectorStoreSearchResult]:
-        collection = self._chroma_client.get_collection(index_name)
+        try:
+            collection = self._chroma_client.get_collection(index_name)
+        except NotFoundError:
+            # nothing has been ingested into the index yet
+            return []
 
         if metadata_filters:
             retrieved_result = collection.query(query_embeddings=[query_embedding],
