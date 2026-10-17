@@ -86,6 +86,18 @@ type openAIChatRequest struct {
 	TopP                *float32                 `json:"top_p,omitempty"`
 	Stream              bool                     `json:"stream,omitempty"`
 	StreamOptions       *openAIChatStreamOptions `json:"stream_options,omitempty"`
+	ResponseFormat      *openAIResponseFormat    `json:"response_format,omitempty"`
+}
+
+// openAIResponseFormat asks for a JSON answer: any object, or one matching a schema
+type openAIResponseFormat struct {
+	Type       string            `json:"type"`
+	JSONSchema *openAIJSONSchema `json:"json_schema,omitempty"`
+}
+
+type openAIJSONSchema struct {
+	Name   string          `json:"name"`
+	Schema json.RawMessage `json:"schema"`
 }
 
 // openAIMessage is a message of the conversation. The content of an assistant
@@ -449,6 +461,13 @@ func (provider *OpenAILLMModelProvider) preparePayload(messages []llm.LLMMessage
 				Parameters:  tool.Parameters,
 			},
 		})
+	}
+
+	if format := config.ResponseFormat; format != nil {
+		payload.ResponseFormat = &openAIResponseFormat{Type: format.Type}
+		if format.Type == llm.ResponseFormatJSONSchema {
+			payload.ResponseFormat.JSONSchema = &openAIJSONSchema{Name: "response", Schema: format.Schema}
+		}
 	}
 
 	// zero values mean "not set"; let the API apply its defaults

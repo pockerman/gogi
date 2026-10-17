@@ -47,20 +47,33 @@ class PostgresDB:
             )
 
     def update_document_stats(self, index_name: str, document_id: str, chunk_count: int, page_count: int,
-                              word_count: int):
+                              word_count: int, job_id: str):
+        """the document's stats, unless its content was replaced since the job started"""
         with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
                 UPDATE gogi_documents
                 SET chunk_count = %s, page_count = %s, word_count = %s
-                WHERE id = %s AND index_id = (SELECT id FROM gogi_indexes WHERE name = %s)
+                WHERE id = %s AND index_id = (SELECT id FROM gogi_indexes WHERE name = %s) AND job_id = %s::uuid
                 """,
-                (chunk_count, page_count, word_count, document_id, index_name),
+                (chunk_count, page_count, word_count, document_id, index_name, job_id),
             )
 
-    def replace_sections(self, index_name: str, document_id: str, sections) -> None:
-        """store the document's sections, replacing any an earlier attempt stored"""
+    def replace_sections(self, job_id: str, index_name: str, document_id: str, sections) -> bool:
+        """store the document's sections, replacing any stored before, if the job is still the document's: its
+        content may have been replaced since the job started. Returns whether they were stored"""
         with self._connection() as connection, connection.transaction(), connection.cursor() as cur:
+            # the document's row is locked, so its content can't be replaced while its sections are stored
+            cur.execute(
+                """
+                SELECT d.job_id::text FROM gogi_documents d JOIN gogi_indexes i ON i.id = d.index_id
+                WHERE i.name = %s AND d.id = %s FOR UPDATE OF d
+                """,
+                (index_name, document_id),
+            )
+            row = cur.fetchone()
+            if row is None or row[0] != job_id:
+                return False
             cur.execute(
                 """
                 DELETE FROM gogi_document_sections
@@ -78,10 +91,11 @@ class PostgresDB:
                   section.page_end or 0, section.content, index_name)
                  for position, section in enumerate(sections, start=1)],
             )
+        return True
 
     def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
-        """whether the ingestion job isn't cancelled and its document is still registered; deleting a
-        document cancels its job, and deleting an index deletes its documents"""
+        """whether the ingestion job isn't cancelled and is still its document's: deleting a document or
+        replacing its content cancels its job, and deleting an index deletes its documents"""
         with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
@@ -89,9 +103,9 @@ class PostgresDB:
                     COALESCE((SELECT status <> 'CANCELLED' FROM jobs WHERE id = %s), TRUE)
                     AND EXISTS (
                         SELECT 1 FROM gogi_documents d JOIN gogi_indexes i ON i.id = d.index_id
-                        WHERE i.name = %s AND d.id = %s
+                        WHERE i.name = %s AND d.id = %s AND d.job_id = %s::uuid
                     )
                 """,
-                (job_id, index_name, document_id),
+                (job_id, index_name, document_id, job_id),
             )
             return cur.fetchone()[0]

@@ -103,6 +103,31 @@ func (r *DocumentsRepository) Get(ctx context.Context, indexName string, documen
 	return document, err
 }
 
+// Replace gives the document new content: its file, job and metadata; its stats start again from zero.
+// It fails with ErrDocumentNotFound if there's no such document
+func (r *DocumentsRepository) Replace(ctx context.Context, document Document) error {
+
+	metadata := document.Metadata
+	if metadata == nil {
+		metadata = map[string]string{}
+	}
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE gogi_documents
+		SET filename = $3, content_type = $4, metadata = $5, job_id = NULLIF($6, '')::uuid, size_bytes = $7,
+			object_key = $8, chunk_count = 0, page_count = 0, word_count = 0
+		WHERE id = $2 AND index_id = (SELECT id FROM gogi_indexes WHERE name = $1)
+	`, document.IndexName, document.ID, document.Filename, document.ContentType, metadata, document.JobID,
+		document.SizeBytes, document.ObjectKey)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return utils.ErrDocumentNotFound
+	}
+	return nil
+}
+
 // Delete removes the document; deleting one that doesn't exist does nothing
 func (r *DocumentsRepository) Delete(ctx context.Context, indexName string, documentID string) error {
 

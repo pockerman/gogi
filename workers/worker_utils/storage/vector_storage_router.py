@@ -57,6 +57,6 @@ class VectorStorageRouter(VectorStorageBase):
                                  metadata_filters=metadata_filters, score_threshold=score_threshold)
     
     @override
-    def delete_by_document(self, index_name: str, document_id: str) -> int:
-        """Delete chunks and document metadata for a document. Returns chunks deleted."""
-        return self._impl.delete_by_document(index_name=index_name, document_id=document_id)
+    def delete_by_document(self, index_name: str, document_id: str, job_id: str | None = None) -> int:
+        """Delete the chunks of a document, or only those a job stored. Returns chunks deleted."""
+        return self._impl.delete_by_document(index_name=index_name, document_id=document_id, job_id=job_id)

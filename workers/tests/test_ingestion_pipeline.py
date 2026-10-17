@@ -51,9 +51,11 @@ class VectorStorage:
 
     def insert(self, index_name, document_id, chunks, embeddings, metadata):
         self.chunks.extend(chunks)
+        self.metadata = metadata
         self.on_insert()
 
-    def delete_by_document(self, index_name, document_id):
+    def delete_by_document(self, index_name, document_id, job_id=None):
+        self.deleted_job = job_id
         removed = len(self.chunks)
         self.chunks = []
         return removed
@@ -65,12 +67,16 @@ class State:
     def __init__(self):
         self.deleted = False
         self.sections = None
+        self.replaced = False
 
     def is_wanted(self, job_id, index_name, document_id):
         return not self.deleted
 
-    def replace_sections(self, index_name, document_id, sections):
+    def replace_sections(self, job_id, index_name, document_id, sections):
+        if self.replaced:
+            return False
         self.sections = sections
+        return True
 
 
 def request():
@@ -138,3 +144,24 @@ def test_chunks_stored_after_the_delete_removed_the_document_are_removed():
         pipeline(state, storage=storage).run(request())
 
     assert storage.chunks == []
+
+
+def test_chunks_record_the_job_and_a_stopped_job_removes_only_its_own():
+    state = State()
+    storage = VectorStorage(on_insert=lambda: setattr(state, "deleted", True))
+
+    with pytest.raises(IngestionCancelled):
+        pipeline(state, storage=storage).run(request())
+
+    assert storage.metadata["job_id"] == "job-1"
+    assert storage.deleted_job == "job-1"
+
+
+def test_a_job_whose_document_was_replaced_stores_nothing():
+    state, storage = State(), VectorStorage()
+    state.replaced = True
+
+    with pytest.raises(IngestionCancelled):
+        pipeline(state, storage=storage).run(request())
+
+    assert state.sections is None and storage.chunks == []

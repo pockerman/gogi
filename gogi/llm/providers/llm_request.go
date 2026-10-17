@@ -62,6 +62,30 @@ func convertLLMMessages(messages []*gogiv1.LLMMessage) ([]LLM.LLMMessage, error)
 	return converted, nil
 }
 
+// convertResponseFormat converts and checks the response format of a request: none, "text", "json_object",
+// or "json_schema" with a JSON schema of an object
+func convertResponseFormat(format *gogiv1.ResponseFormat) (*LLM.ResponseFormat, error) {
+
+	switch format.GetType() {
+	case "", "text":
+		return nil, nil
+	case LLM.ResponseFormatJSONObject:
+		return &LLM.ResponseFormat{Type: LLM.ResponseFormatJSONObject}, nil
+	case LLM.ResponseFormatJSONSchema:
+		var schema map[string]any
+		if err := json.Unmarshal([]byte(format.GetSchemaJson()), &schema); err != nil {
+			return nil, invalidRequest("the response format's schema is not a JSON object: %v", err)
+		}
+		if schemaType, ok := schema["type"]; ok && schemaType != "object" {
+			return nil, invalidRequest("the response format's schema must describe an object, not %v", schemaType)
+		}
+		return &LLM.ResponseFormat{Type: LLM.ResponseFormatJSONSchema, Schema: json.RawMessage(format.GetSchemaJson())}, nil
+	default:
+		return nil, invalidRequest("unsupported response format %q, the formats are text, %s and %s",
+			format.GetType(), LLM.ResponseFormatJSONObject, LLM.ResponseFormatJSONSchema)
+	}
+}
+
 // convertTools converts and checks the tools of a request
 func convertTools(tools []*gogiv1.ToolDefinition) ([]LLM.LLMToolDefinition, error) {
 
