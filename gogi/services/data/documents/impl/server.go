@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"errors"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/utils"
 	"time"
@@ -21,12 +22,14 @@ type DocumentsServer struct {
 	gogiv1.UnimplementedDocumentServerServer
 	temporalClient client.Client // Inject this via dependency injection
 	jobsRepo       postgres.JobsRepository
+	documentsRepo  *postgres.DocumentsRepository
 }
 
 func NewDocumentsServer(temporalClient client.Client, dbClient *pgxpool.Pool) *DocumentsServer {
 	return &DocumentsServer{
 		temporalClient: temporalClient,
 		jobsRepo:       *postgres.NewJobsRepository(dbClient),
+		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
 	}
 }
 
@@ -34,30 +37,50 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 	req *gogiv1.IngestDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 
 	indexName := req.GetIndexName()
-
-	// Your logic here
 	log.Infof("Ingesting document for %s", indexName)
+
+	documentID := req.GetDocumentId()
+	if documentID == "" {
+		documentID = uuid.New().String()
+	}
 
 	// create a Job fof the ingestion
 	newUUID := uuid.New().String()
 	job := postgres.Job{
 		ID:           newUUID,
-		DocumentID:   req.GetDocumentId(),
+		DocumentID:   documentID,
 		Status:       utils.JobPending,
 		JobType:      string(utils.DocumentIngestionJob),
 		ErrorMessage: "NONE",
 		CreatedAt:    time.Now(),
 	}
 
-	// we need to update the DB for this
-	s.jobsRepo.Create(ctx, job)
+	if err := s.jobsRepo.Create(ctx, job); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create the ingestion job: %v", err)
+	}
+
+	// the document is listed from now on, with its job's status
+	err := s.documentsRepo.Create(ctx, postgres.Document{
+		ID:          documentID,
+		IndexName:   indexName,
+		Filename:    req.GetFilename(),
+		ContentType: req.GetContentType(),
+		Metadata:    req.GetMetadata(),
+		JobID:       job.ID,
+	})
+	if errors.Is(err, utils.ErrIndexNotFound) {
+		return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to register the document: %v", err)
+	}
 
 	// 1. Map gRPC request to Workflow Config
 	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
 		JobId:            job.ID,
 		IndexName:        req.GetIndexName(),
 		Filename:         req.GetFilename(),
-		DocumentID:       req.GetDocumentId(),
+		DocumentID:       documentID,
 		Content:          req.GetContent(),
 		ChunkStrategy:    req.GetChunkStrategy(),
 		EmbeddingsModel:  req.GetEmbeddingsModel(),
@@ -87,7 +110,7 @@ func (s *DocumentsServer) IngestDocument(ctx context.Context,
 	// The client gets a Job ID (Workflow ID) to poll status later if needed
 	return &gogiv1.IngestDocumentJobResponse{
 		IndexName:    req.GetIndexName(),
-		DocumentId:   req.GetDocumentId(),
+		DocumentId:   documentID,
 		Filename:     req.GetFilename(),
 		Status:       string(utils.JobPending), // Initial status
 		Progress:     0.0,
@@ -143,8 +166,13 @@ func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.Searc
 
 func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
 
-	// we need to update the DB for this
-	job, _ := s.jobsRepo.GetJob(req.GetJobId())
+	job, err := s.jobsRepo.GetJob(req.GetJobId())
+	if errors.Is(err, utils.ErrJobNotFound) {
+		return nil, status.Errorf(codes.NotFound, "job %s not found", req.GetJobId())
+	}
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to get job %s: %v", req.GetJobId(), err)
+	}
 
 	return &gogiv1.IngestDocumentJobResponse{
 		JobId:        job.ID,
@@ -155,42 +183,88 @@ func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.
 }
 
 func (s *DocumentsServer) ListDocuments(ctx context.Context, req *gogiv1.ListDocumentsRequest) (*gogiv1.ListDocumentsResponse, error) {
-	indexName := req.GetIndexName()
+	log.Infof("Listing documents of %s", req.GetIndexName())
 
-	// Your logic here
-	log.Infof("Listing documents for %s", indexName)
+	documents, err := s.documentsRepo.List(ctx, req.GetIndexName(), req.GetMetadataFilter())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list the documents of %s: %v", req.GetIndexName(), err)
+	}
 
-	return &gogiv1.ListDocumentsResponse{
-		Documents: []*gogiv1.DocumentMetadata{{IndexName: indexName,
-			DocumentId: "example",
-			Filename:   "example",
-			ChunkCount: 1, PageCount: 1, WordCount: 100}},
-	}, nil
+	response := &gogiv1.ListDocumentsResponse{Documents: make([]*gogiv1.DocumentMetadata, 0, len(documents))}
+	for _, document := range documents {
+		response.Documents = append(response.Documents, toDocumentMetadata(document))
+	}
+	return response, nil
 }
 
 func (s *DocumentsServer) GetDocument(ctx context.Context, req *gogiv1.GetDocumentRequest) (*gogiv1.GetDocumentResponse, error) {
+	log.Infof("Getting document %s of %s", req.GetDocumentId(), req.GetIndexName())
+
+	document, err := s.getDocument(ctx, req.GetIndexName(), req.GetDocumentId())
+	if err != nil {
+		return nil, err
+	}
+	return &gogiv1.GetDocumentResponse{Document: toDocumentMetadata(document)}, nil
+}
+
+// DeleteDocument deletes the document's chunks from the vector store, then the document
+func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.DeleteDocumentRequest) (*gogiv1.DeleteDocumentResponse, error) {
 	indexName := req.GetIndexName()
 	documentID := req.GetDocumentId()
-	log.Infof("Getting document %s for index %s", documentID, indexName)
+	log.Infof("Deleting document %s from index %s", documentID, indexName)
 
-	// Your logic here
+	if _, err := s.getDocument(ctx, indexName, documentID); err != nil {
+		return nil, err
+	}
 
-	return &gogiv1.GetDocumentResponse{
-		Document: &gogiv1.DocumentMetadata{IndexName: indexName, DocumentId: documentID,
-			Filename: "example", ChunkCount: 1, PageCount: 1, WordCount: 100},
+	options := client.StartWorkflowOptions{
+		ID:        uuid.New().String(),
+		TaskQueue: utils.GetIngestionDocumentQueueName(),
+	}
+	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID}
+	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.DeleteDocumentWorkflow, config)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to start the delete workflow: %v", err)
+	}
+
+	var result workflows.DeleteDocumentWorkflowResult
+	if err := we.Get(ctx, &result); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete the chunks of document %s: %v", documentID, err)
+	}
+
+	if err := s.documentsRepo.Delete(ctx, indexName, documentID); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to delete document %s: %v", documentID, err)
+	}
+
+	return &gogiv1.DeleteDocumentResponse{
+		Response:      "Document deleted",
+		ChunksDeleted: int32(result.ChunksDeleted),
 	}, nil
 }
 
-func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.DeleteDocumentRequest) (*gogiv1.DeleteDocumentResponse, error) {
+func (s *DocumentsServer) getDocument(ctx context.Context, indexName string, documentID string) (postgres.Document, error) {
+	document, err := s.documentsRepo.Get(ctx, indexName, documentID)
+	if errors.Is(err, utils.ErrDocumentNotFound) {
+		return postgres.Document{}, status.Errorf(codes.NotFound, "document %s not found in index %s", documentID, indexName)
+	}
+	if err != nil {
+		return postgres.Document{}, status.Errorf(codes.Internal, "failed to get document %s: %v", documentID, err)
+	}
+	return document, nil
+}
 
-	indexName := req.GetIndexName()
-	documentID := req.GetDocumentId()
-
-	log.Infof("Deleting document %s from index %s", documentID, indexName)
-
-	// Your deletion logic here
-
-	return &gogiv1.DeleteDocumentResponse{
-		Response: "Document deleted",
-	}, nil
+func toDocumentMetadata(document postgres.Document) *gogiv1.DocumentMetadata {
+	return &gogiv1.DocumentMetadata{
+		DocumentId:  document.ID,
+		IndexName:   document.IndexName,
+		Filename:    document.Filename,
+		ChunkCount:  document.ChunkCount,
+		PageCount:   document.PageCount,
+		WordCount:   document.WordCount,
+		Metadata:    document.Metadata,
+		ContentType: document.ContentType,
+		Status:      document.Status,
+		JobId:       document.JobID,
+		CreatedAt:   document.CreatedAt.Format(time.RFC3339),
+	}
 }

@@ -1,6 +1,7 @@
 """Wrapper for ChromaDB
 """
 import chromadb
+from chromadb.errors import NotFoundError
 from pydantic import BaseModel
 from typing import Optional, Any, override, List, Dict
 import uuid
@@ -24,7 +25,15 @@ class ChromaDBHttpWrapper(VectorStorageBase):
     @override
     def delete_by_document(self, index_name: str, document_id: str) -> int:
         """Delete chunks and document metadata for a document. Returns chunks deleted."""
-        pass
+        try:
+            collection = self._chroma_client.get_collection(index_name)
+        except NotFoundError:
+            return 0
+
+        ids = collection.get(where={"document_id": document_id}, include=[])["ids"]
+        if ids:
+            collection.delete(ids=ids)
+        return len(ids)
 
     @override
     def create_index(self, index_name: str) -> Optional[Any]:
@@ -56,8 +65,8 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         for i, chunk in enumerate(chunks):
             ids.append(uuid.uuid4().hex)
             documents.append(chunk.text)
-            chunk.metadata['document_id'] = document_id
-            metadatas.append(chunk.metadata)
+            # every chunk carries its document's metadata, so searches can filter on it
+            metadatas.append({**(metadata or {}), **chunk.metadata, 'document_id': document_id})
 
 
         # You must provide either documents, embeddings, or both. 
@@ -69,6 +78,7 @@ class ChromaDBHttpWrapper(VectorStorageBase):
                        embeddings=embeddings, 
                        metadatas=metadatas, 
                        documents=documents)
+        return len(ids)
 
     def search( self,
         index_name: str,

@@ -146,6 +146,10 @@ The indexes and documents services hold the knowledge an application retrieves f
 - **Ingestion:** documents are ingested asynchronously. An ingestion job, run by workers on Temporal, splits a
   document into chunks, embeds them, and stores them in the vector store, while the application follows the job's
   progress.
+- **Documents:** the documents service registers a document when its ingestion starts, with the metadata it was
+  ingested with, and reports its ingestion job's status. Documents can be listed by their metadata, e.g. every
+  document of a topic. Each chunk carries its document's metadata, so searches can filter on it too. Deleting a
+  document deletes its chunks from the vector store; deleting an index deletes its documents and its collection.
 - **Search:** the documents service searches an index for the chunks relevant to a query.
 
 ### Tool service

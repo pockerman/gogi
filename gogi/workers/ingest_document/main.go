@@ -35,6 +35,7 @@ func main() {
 	// Register the workflows here
 	w.RegisterWorkflow(workflows.IngestDocumentWorkflow)
 	w.RegisterWorkflow(workflows.SearchDocumentsWorkflow)
+	w.RegisterWorkflow(workflows.DeleteDocumentWorkflow)
 
 	log.Infof("Starting Temporal Worker on '%s'...", WORK_QUEUE)
 	if err := w.Run(worker.InterruptCh()); err != nil {
