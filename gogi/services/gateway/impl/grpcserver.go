@@ -2,9 +2,14 @@ package impl
 
 import (
 	gogiv1 "gogi/gogi/gogi/v1"
+	"time"
 
 	"google.golang.org/grpc"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
+
+// how long the gateway waits for a service to answer a health check
+const healthCheckTimeout = 2 * time.Second
 
 type GrpcServer struct {
 	// This struct can hold references to the service registry, proxy, and any other components needed to handle gRPC requests
@@ -58,6 +63,9 @@ func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy, options .
 
 	gogiv1.RegisterObservabilityServiceServer(server,
 		&ObservabilityServiceProxy{proxy: proxy})
+
+	// the platform's health: the gateway's own, and that of each service behind it
+	healthpb.RegisterHealthServer(server, NewGatewayHealth(registry, healthCheckTimeout))
 
 	return grpcServer
 

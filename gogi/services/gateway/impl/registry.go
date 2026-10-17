@@ -46,6 +46,15 @@ func (r *ServiceRegistry) GetWorkflowAddress(name string) (string, error) {
 	return "", fmt.Errorf("workflow not found: %s", name)
 }
 
+// Services returns a copy of the registered platform services, name to address
+func (r *ServiceRegistry) Services() map[string]string {
+	services := make(map[string]string, len(r.services))
+	for name, address := range r.services {
+		services[name] = address
+	}
+	return services
+}
+
 func (r *ServiceRegistry) ResolveService(name string) (string, error) {
 
 	if address, ok := r.services[name]; ok {

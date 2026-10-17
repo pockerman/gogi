@@ -15,6 +15,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -65,6 +67,11 @@ func main() {
 
 	grpcServer := grpc.NewServer()
 	gogiv1.RegisterDocumentServerServer(grpcServer, documentServer)
+
+	// add the health server
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(grpcServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	// Enable reflection for tools like grpcurl and BloomRPC
 	reflection.Register(grpcServer)

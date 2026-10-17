@@ -13,6 +13,8 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 )
 
 func main() {
@@ -50,6 +52,11 @@ func main() {
 	indexServer := grpc.NewServer()
 
 	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool))
+
+	// add the health server
+	healthServer := health.NewServer()
+	healthpb.RegisterHealthServer(indexServer, healthServer)
+	healthServer.SetServingStatus("", healthpb.HealthCheckResponse_SERVING)
 
 	log.Infof("%s server running on: %s", SERVICE_NAME, PORT)
 	if err := indexServer.Serve(lis); err != nil {
