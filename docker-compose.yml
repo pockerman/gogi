@@ -37,7 +37,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - chroma-data:/chroma/chroma
+      # where chroma keeps its data; /chroma/chroma, mounted before, left it in the container
+      - chroma-data:/data
+    # every collection holds files open: the default limit of 1024 runs out after a few hundred
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     restart: unless-stopped
   minio:
     # quay.io/minio/aistor/minio is MinIO's licensed "AIStor" edition and refuses all
