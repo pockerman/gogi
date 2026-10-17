@@ -117,8 +117,14 @@ func requestInput(req *gogiv1.LLMRunRequest) ([]LLM.LLMMessage, LLM.LLMModelConf
 		return nil, LLM.LLMModelConfig{}, err
 	}
 
+	responseFormat, err := convertResponseFormat(req.GetResponseFormat())
+	if err != nil {
+		return nil, LLM.LLMModelConfig{}, err
+	}
+
 	config := LLM.LLMModelConfig{ModelName: req.GetConfig().GetModel(), MaxTokens: int(req.GetConfig().GetMaxTokens()),
-		Temperature: req.GetConfig().GetTemperature(), TopP: req.GetConfig().GetTopP(), Tools: tools}
+		Temperature: req.GetConfig().GetTemperature(), TopP: req.GetConfig().GetTopP(), Tools: tools,
+		ResponseFormat: responseFormat}
 	return messages, config, nil
 }
 

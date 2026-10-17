@@ -42,6 +42,14 @@ come back in the OpenAI format whatever the provider. The model service doesn't 
 them, usually through the [tool service](tool_service.md#tools-for-a-model), and runs the model again with the
 results as tool messages.
 
+### JSON answers
+
+A request's `response_format` asks for an answer that is a JSON object: `json_object` for any object, or
+`json_schema` with `schema_json`, the JSON Schema of an object, for one that matches it. The response's content is
+the object. OpenAI takes the format as it is. Anthropic has no response format, so the model service gives the model
+a single tool whose input is the schema, makes it call that tool, and returns the tool's input as the content; such a
+request can't also carry tools. A schema that isn't an object's is an invalid request.
+
 ## Registered models
 
 `RegisterLLM` adds a self-hosted model, e.g. one served by vLLM, TGI or Ollama, under a provider name of your

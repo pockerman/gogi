@@ -21,6 +21,9 @@ const (
 	anthropicDefaultModel     = "claude-opus-5-5"
 	anthropicDefaultMaxTokens = 16000
 	anthropicRequestTimeout   = 10 * time.Minute
+	// the Messages API has no response format: a JSON answer is asked for by making the model call this
+	// tool, whose input is the answer
+	anthropicResponseTool = "structured_response"
 )
 
 // AnthropicLLMModelProvider provider for
@@ -81,11 +84,20 @@ func (provider *AnthropicLLMModelProvider) Run(ctx context.Context, messages []l
 
 	content := strings.Builder{}
 	toolCalls := make([]llm.LLMToolCall, 0)
+	finishReason := anthropicFinishReason(message.StopReason)
 	for _, block := range message.Content {
 		switch variant := block.AsAny().(type) {
 		case anthropic.TextBlock:
-			content.WriteString(variant.Text)
+			if config.ResponseFormat == nil {
+				content.WriteString(variant.Text)
+			}
 		case anthropic.ToolUseBlock:
+			if config.ResponseFormat != nil && variant.Name == anthropicResponseTool {
+				// the answer is the tool's input
+				content.Write(variant.Input)
+				finishReason = "stop"
+				continue
+			}
 			toolCalls = append(toolCalls, anthropicToolCall(variant))
 		}
 	}
@@ -94,7 +106,7 @@ func (provider *AnthropicLLMModelProvider) Run(ctx context.Context, messages []l
 		provider.Name(),
 		string(message.Model),
 		content.String(),
-		anthropicFinishReason(message.StopReason),
+		finishReason,
 		anthropicTokenUsage(message.Usage),
 		toolCalls,
 	)
@@ -126,6 +138,11 @@ func (provider *AnthropicLLMModelProvider) RunStream(
 	toolCalls := make([]llm.LLMToolCall, 0)
 	for _, block := range message.Content {
 		if toolUse, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
+			if config.ResponseFormat != nil && toolUse.Name == anthropicResponseTool {
+				// its input was streamed as the answer
+				finishReason = "stop"
+				continue
+			}
 			toolCalls = append(toolCalls, anthropicToolCall(toolUse))
 		}
 	}
@@ -169,8 +186,20 @@ func (provider *AnthropicLLMModelProvider) streamMessage(ctx context.Context, me
 		}
 
 		if delta, ok := event.AsAny().(anthropic.ContentBlockDeltaEvent); ok {
-			if text, ok := delta.Delta.AsAny().(anthropic.TextDelta); ok && text.Text != "" {
-				if err := onText(text.Text); err != nil {
+			text := ""
+			switch variant := delta.Delta.AsAny().(type) {
+			case anthropic.TextDelta:
+				if config.ResponseFormat == nil {
+					text = variant.Text
+				}
+			case anthropic.InputJSONDelta:
+				// the answer, when a response format is asked for: the only tool is the response tool
+				if config.ResponseFormat != nil {
+					text = variant.PartialJSON
+				}
+			}
+			if text != "" {
+				if err := onText(text); err != nil {
 					return anthropic.Message{}, err
 				}
 			}
@@ -288,6 +317,26 @@ func (provider *AnthropicLLMModelProvider) preparePayload(messages []llm.LLMMess
 			return anthropic.MessageNewParams{}, err
 		}
 		params.Tools = append(params.Tools, anthropic.ToolUnionParam{OfTool: &toolParam})
+	}
+
+	if format := config.ResponseFormat; format != nil {
+		if len(config.Tools) > 0 {
+			return anthropic.MessageNewParams{}, invalidRequest("anthropic: a response format can't be combined with tools")
+		}
+		schema := format.Schema
+		if len(schema) == 0 {
+			schema = json.RawMessage(`{"type":"object"}`)
+		}
+		toolParam, err := anthropicTool(llm.LLMToolDefinition{
+			Name:        anthropicResponseTool,
+			Description: "Give your answer as this tool's input.",
+			Parameters:  schema,
+		})
+		if err != nil {
+			return anthropic.MessageNewParams{}, err
+		}
+		params.Tools = []anthropic.ToolUnionParam{{OfTool: &toolParam}}
+		params.ToolChoice = anthropic.ToolChoiceParamOfTool(anthropicResponseTool)
 	}
 
 	// zero values mean "not set"; let the API apply its defaults.
