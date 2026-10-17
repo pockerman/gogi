@@ -23,6 +23,9 @@ class IngestionState(Protocol):
     def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
         """whether the job isn't cancelled and its document is still registered"""
 
+    def replace_sections(self, index_name: str, document_id: str, sections) -> None:
+        """store the document's sections, so it can be read section by section"""
+
 
 class IngestionPipeline:
 
@@ -48,6 +51,8 @@ class IngestionPipeline:
         check()
         content = self._objects.read(bucket=request.bucket, object_key=request.object_key)
         extracted_document = self._parse_router.parse(file_bytes=content, filename=request.filename)
+        check()
+        self._state.replace_sections(request.index_name, request.document_id, extracted_document.sections)
 
         # 2. create chunks
         chunks = self._chunk_router.chunk(extracted_document, chunking_strategy=request.chunk_strategy,

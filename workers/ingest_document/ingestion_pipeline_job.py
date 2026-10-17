@@ -17,6 +17,7 @@ from workers.worker_utils.documents.parsers.parser_router import ParseRouter
 from workers.worker_utils.documents.parsers.document_parser_base import ParserType
 from workers.worker_utils.documents.parsers.text_parser import TextParser
 from workers.worker_utils.documents.parsers.pdf_parser import PdfParser
+from workers.worker_utils.documents.parsers.markdown_parser import MarkdownParser
 from workers.worker_utils.chunking.chunking_router import ChunkingRouter
 from workers.worker_utils.chunking.chunking_strategy_base import ChunkingType
 from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
@@ -38,6 +39,7 @@ from workers.ingest_document.delete_request import DocumentDeleteRequest
 PARSERS = {
 
    ParserType.TEXT: TextParser(),
+   ParserType.MARKDOWN: MarkdownParser(),
    ParserType.PDF: PdfParser(),
 }
 
@@ -83,10 +85,10 @@ def ingest_document(req):
     try:
         extracted_document, chunks = pipeline.run(request)
 
-        pages = {section.page_number for section in extracted_document.sections if section.page_number is not None}
         words = sum(len(section.content.split()) for section in extracted_document.sections)
         db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
-                                 chunk_count=len(chunks), page_count=len(pages), word_count=words)
+                                 chunk_count=len(chunks), page_count=extracted_document.page_count,
+                                 word_count=words)
     except IngestionCancelled as e:
         # the job is CANCELLED already, or its document went with its index; retrying can't help
         logger.info(f"Job {request.job_id} stopped: {e}")

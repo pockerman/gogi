@@ -156,6 +156,11 @@ The indexes and documents services hold the knowledge an application retrieves f
   document of a topic. Each chunk carries its document's metadata, so searches can filter on it too. Deleting a
   document cancels its ingestion if it is still running, then deletes its chunks from the vector store and its file
   from the object store; deleting an index deletes its documents, their files and its collection.
+- **Reading:** a document's ingestion also divides it into sections: a Markdown file's headings, a PDF's outline
+  (or its pages, if it has none), or the whole of a plain text file. The documents service lists a document's
+  sections and returns a section's text, with its subsections' if asked (`ListDocumentSections`,
+  `GetDocumentSection`). Every chunk records its section, and the uploaded file can be downloaded
+  (`DownloadDocument`).
 - **Search:** the documents service searches an index for the chunks relevant to a query.
 
 ### Tool service

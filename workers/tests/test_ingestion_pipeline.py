@@ -22,7 +22,7 @@ class Objects:
 
 class Parser:
     def parse(self, file_bytes, filename):
-        return SimpleNamespace(sections=[])
+        return SimpleNamespace(sections=["a section"])
 
 
 class Chunker:
@@ -64,9 +64,13 @@ class State:
 
     def __init__(self):
         self.deleted = False
+        self.sections = None
 
     def is_wanted(self, job_id, index_name, document_id):
         return not self.deleted
+
+    def replace_sections(self, index_name, document_id, sections):
+        self.sections = sections
 
 
 def request():
@@ -94,6 +98,14 @@ def test_a_document_is_embedded_in_batches_and_stored():
 
     assert embedder.batches == [2, 2, 1]
     assert storage.chunks == chunks and len(chunks) == 5
+
+
+def test_the_sections_are_stored():
+    state = State()
+
+    pipeline(state).run(request())
+
+    assert state.sections == ["a section"]
 
 
 def test_a_document_deleted_before_its_ingestion_starts_is_not_read():

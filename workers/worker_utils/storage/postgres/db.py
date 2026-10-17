@@ -56,6 +56,27 @@ class PostgresDB:
                 (chunk_count, page_count, word_count, document_id, index_name),
             )
 
+    def replace_sections(self, index_name: str, document_id: str, sections) -> None:
+        """store the document's sections, replacing any an earlier attempt stored"""
+        with self._conn.transaction(), self._conn.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM gogi_document_sections
+                WHERE document_id = %s AND index_id = (SELECT id FROM gogi_indexes WHERE name = %s)
+                """,
+                (document_id, index_name),
+            )
+            cur.executemany(
+                """
+                INSERT INTO gogi_document_sections
+                    (index_id, document_id, position, title, level, page_start, page_end, content)
+                SELECT id, %s, %s, %s, %s, %s, %s, %s FROM gogi_indexes WHERE name = %s
+                """,
+                [(document_id, position, section.heading or "", section.level, section.page_number or 0,
+                  section.page_end or 0, section.content, index_name)
+                 for position, section in enumerate(sections, start=1)],
+            )
+
     def is_wanted(self, job_id: str, index_name: str, document_id: str) -> bool:
         """whether the ingestion job isn't cancelled and its document is still registered; deleting a
         document cancels its job, and deleting an index deletes its documents"""

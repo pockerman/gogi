@@ -45,3 +45,15 @@ func (p *DocumentsProxy) GetDocumentIngestJob(ctx context.Context, req *gogiv1.G
 func (p *DocumentsProxy) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
 	return p.proxy.ForwardSearchDocuments(ctx, req)
 }
+
+func (p *DocumentsProxy) ListDocumentSections(ctx context.Context, req *gogiv1.ListDocumentSectionsRequest) (*gogiv1.ListDocumentSectionsResponse, error) {
+	return p.proxy.ForwardListDocumentSections(ctx, req)
+}
+
+func (p *DocumentsProxy) GetDocumentSection(ctx context.Context, req *gogiv1.GetDocumentSectionRequest) (*gogiv1.GetDocumentSectionResponse, error) {
+	return p.proxy.ForwardGetDocumentSection(ctx, req)
+}
+
+func (p *DocumentsProxy) DownloadDocument(req *gogiv1.DownloadDocumentRequest, stream grpc.ServerStreamingServer[gogiv1.DownloadDocumentResponse]) error {
+	return p.proxy.ForwardDownloadDocument(req, stream)
+}
