@@ -27,6 +27,8 @@ type ObjectStore interface {
 	// Put stores the content and returns its size; a size of -1 means unknown
 	Put(ctx context.Context, bucket, object string, content io.Reader, size int64, contentType string) (int64, error)
 	Remove(ctx context.Context, bucket, object string) error
+	// Get reads from offset, length bytes, or to the end if length is 0
+	Get(ctx context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error)
 }
 
 // WorkflowStarter starts Temporal workflows; client.Client is one
@@ -40,6 +42,7 @@ type DocumentsServer struct {
 	temporalClient WorkflowStarter
 	jobsRepo       postgres.JobsRepository
 	documentsRepo  *postgres.DocumentsRepository
+	sectionsRepo   *postgres.DocumentSectionsRepository
 	objects        ObjectStore
 	// uploads larger than this are refused
 	maxUploadBytes int64
@@ -51,6 +54,7 @@ func NewDocumentsServer(temporalClient WorkflowStarter, dbClient *pgxpool.Pool, 
 		temporalClient: temporalClient,
 		jobsRepo:       *postgres.NewJobsRepository(dbClient),
 		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
+		sectionsRepo:   postgres.NewDocumentSectionsRepository(dbClient),
 		objects:        objects,
 		maxUploadBytes: maxUploadBytes,
 	}
@@ -155,6 +159,21 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 			return nil, status.Errorf(codes.NotFound, "index %s not found", indexName)
 		}
 		return nil, status.Errorf(codes.Internal, "failed to register the document: %v", err)
+	}
+
+	// a file kept but not ingested, e.g. a video, is ready at once
+	if req.GetStoreOnly() {
+		if err := s.jobsRepo.UpdateStatus(ctx, job.ID, utils.JobCompleted); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to complete the job of document %s: %v", documentID, err)
+		}
+		return &gogiv1.IngestDocumentJobResponse{
+			IndexName:  indexName,
+			DocumentId: documentID,
+			Filename:   req.GetFilename(),
+			Status:     string(utils.JobCompleted),
+			Progress:   100.0,
+			JobId:      job.ID,
+		}, nil
 	}
 
 	// 3. map the request to the workflow's config
@@ -384,6 +403,108 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 		Response:      "Document deleted",
 		ChunksDeleted: int32(result.ChunksDeleted),
 	}, nil
+}
+
+// ListDocumentSections lists the document's sections in order; a document has none until it's processed
+func (s *DocumentsServer) ListDocumentSections(ctx context.Context, req *gogiv1.ListDocumentSectionsRequest) (*gogiv1.ListDocumentSectionsResponse, error) {
+	if _, err := s.getDocument(ctx, req.GetIndexName(), req.GetDocumentId()); err != nil {
+		return nil, err
+	}
+	sections, err := s.sectionsRepo.List(ctx, req.GetIndexName(), req.GetDocumentId())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to list the sections of document %s: %v", req.GetDocumentId(), err)
+	}
+
+	response := &gogiv1.ListDocumentSectionsResponse{Sections: make([]*gogiv1.DocumentSection, 0, len(sections))}
+	for _, section := range sections {
+		response.Sections = append(response.Sections, toDocumentSection(section))
+	}
+	return response, nil
+}
+
+// GetDocumentSection returns a section's text, followed by its subsections' if asked for
+func (s *DocumentsServer) GetDocumentSection(ctx context.Context, req *gogiv1.GetDocumentSectionRequest) (*gogiv1.GetDocumentSectionResponse, error) {
+	if _, err := s.getDocument(ctx, req.GetIndexName(), req.GetDocumentId()); err != nil {
+		return nil, err
+	}
+	sections, err := s.sectionsRepo.Read(ctx, req.GetIndexName(), req.GetDocumentId(), req.GetPosition(), req.GetIncludeSubsections())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to read section %d of document %s: %v", req.GetPosition(), req.GetDocumentId(), err)
+	}
+	if len(sections) == 0 {
+		return nil, status.Errorf(codes.NotFound, "document %s has no section %d", req.GetDocumentId(), req.GetPosition())
+	}
+
+	response := &gogiv1.GetDocumentSectionResponse{Sections: make([]*gogiv1.DocumentSectionContent, 0, len(sections))}
+	for _, section := range sections {
+		response.Sections = append(response.Sections, &gogiv1.DocumentSectionContent{
+			Section: toDocumentSection(section),
+			Content: section.Content,
+		})
+	}
+	return response, nil
+}
+
+// the size of the parts a download is streamed in, well under gRPC's 4 MB message limit
+const downloadChunkBytes = 1024 * 1024
+
+// DownloadDocument streams the document's uploaded file: the document first, then the file in parts
+func (s *DocumentsServer) DownloadDocument(req *gogiv1.DownloadDocumentRequest,
+	stream grpc.ServerStreamingServer[gogiv1.DownloadDocumentResponse]) error {
+
+	ctx := stream.Context()
+	document, err := s.getDocument(ctx, req.GetIndexName(), req.GetDocumentId())
+	if err != nil {
+		return err
+	}
+	if document.ObjectKey == "" {
+		return status.Errorf(codes.FailedPrecondition, "document %s was ingested before uploads were kept; it has no file", document.ID)
+	}
+
+	if req.GetOffset() < 0 || req.GetLength() < 0 {
+		return status.Error(codes.InvalidArgument, "offset and length must not be negative")
+	}
+	if req.GetOffset() > 0 && req.GetOffset() >= document.SizeBytes {
+		return status.Errorf(codes.OutOfRange, "offset %d is past the end of document %s (%d bytes)",
+			req.GetOffset(), document.ID, document.SizeBytes)
+	}
+	file, err := s.objects.Get(ctx, documents.Bucket, document.ObjectKey, req.GetOffset(), req.GetLength())
+	if err != nil {
+		return status.Errorf(codes.Internal, "failed to open the file of document %s: %v", document.ID, err)
+	}
+	defer file.Close()
+
+	if err := stream.Send(&gogiv1.DownloadDocumentResponse{Part: &gogiv1.DownloadDocumentResponse_Document{
+		Document: toDocumentMetadata(document)}}); err != nil {
+		return err
+	}
+	buffer := make([]byte, downloadChunkBytes)
+	for {
+		n, readErr := io.ReadFull(file, buffer)
+		if n > 0 {
+			chunk := make([]byte, n)
+			copy(chunk, buffer[:n])
+			if err := stream.Send(&gogiv1.DownloadDocumentResponse{Part: &gogiv1.DownloadDocumentResponse_Chunk{Chunk: chunk}}); err != nil {
+				return err
+			}
+		}
+		if readErr == io.EOF || readErr == io.ErrUnexpectedEOF {
+			return nil
+		}
+		if readErr != nil {
+			return status.Errorf(codes.Internal, "failed to read the file of document %s: %v", document.ID, readErr)
+		}
+	}
+}
+
+func toDocumentSection(section postgres.DocumentSection) *gogiv1.DocumentSection {
+	return &gogiv1.DocumentSection{
+		Position:  section.Position,
+		Title:     section.Title,
+		Level:     section.Level,
+		PageStart: section.PageStart,
+		PageEnd:   section.PageEnd,
+	}
 }
 
 func (s *DocumentsServer) getDocument(ctx context.Context, indexName string, documentID string) (postgres.Document, error) {

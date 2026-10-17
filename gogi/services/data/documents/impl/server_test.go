@@ -1,7 +1,9 @@
 package impl
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -15,6 +17,7 @@ import (
 	"gogi/gogi/utils"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgxpool"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -45,6 +48,18 @@ func (f *fakeObjects) Remove(_ context.Context, bucket, object string) error {
 	defer f.mu.Unlock()
 	delete(f.objects, bucket+"/"+object)
 	return nil
+}
+
+func (f *fakeObjects) Get(_ context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error) {
+	data, ok := f.get(bucket + "/" + object)
+	if !ok {
+		return nil, errors.New("no such object")
+	}
+	data = data[offset:]
+	if length > 0 && length < int64(len(data)) {
+		data = data[:length]
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
 }
 
 func (f *fakeObjects) get(key string) ([]byte, bool) {
@@ -84,6 +99,7 @@ type testService struct {
 	objects   *fakeObjects
 	workflows *fakeWorkflows
 	jobs      *postgres.JobsRepository
+	pool      *pgxpool.Pool
 }
 
 // The test runs against a migrated database, e.g.
@@ -112,7 +128,7 @@ func newTestService(t *testing.T, maxUploadBytes int64) testService {
 	}
 
 	service := testService{objects: &fakeObjects{objects: map[string][]byte{}}, workflows: &fakeWorkflows{},
-		jobs: postgres.NewJobsRepository(pool)}
+		jobs: postgres.NewJobsRepository(pool), pool: pool}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
 	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.workflows, pool, service.objects, maxUploadBytes))
@@ -307,5 +323,151 @@ func TestDeleteDocumentCancelsItsIngestion(t *testing.T) {
 				t.Errorf("job status = %s, want %s", job.GetStatus(), test.want)
 			}
 		})
+	}
+}
+
+func TestReadADocumentBySection(t *testing.T) {
+	service := newTestService(t, 1024)
+	if _, err := upload(t, service.client, info("fem-notes"), chunk("text")); err != nil {
+		t.Fatal(err)
+	}
+	// the ingestion worker stores the sections
+	for position, section := range []struct {
+		title   string
+		level   int
+		content string
+	}{{"1 Introduction", 1, "intro"}, {"2 Shape functions", 1, "shape"}, {"2.1 Linear elements", 2, "linear"}, {"3 Assembly", 1, "assembly"}} {
+		_, err := service.pool.Exec(context.Background(), `INSERT INTO gogi_document_sections (index_id, document_id, position, title, level, content)
+			SELECT id, 'fem-notes', $1, $2, $3, $4 FROM gogi_indexes WHERE name = 'maria--aeronautics'`,
+			position+1, section.title, section.level, section.content)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listed, err := service.client.ListDocumentSections(context.Background(), &gogiv1.ListDocumentSectionsRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.GetSections()) != 4 || listed.GetSections()[2].GetTitle() != "2.1 Linear elements" || listed.GetSections()[2].GetLevel() != 2 {
+		t.Errorf("sections = %v", listed.GetSections())
+	}
+
+	read, err := service.client.GetDocumentSection(context.Background(), &gogiv1.GetDocumentSectionRequest{
+		IndexName: "maria--aeronautics", DocumentId: "fem-notes", Position: 2, IncludeSubsections: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.GetSections()) != 2 || read.GetSections()[0].GetContent() != "shape" || read.GetSections()[1].GetContent() != "linear" {
+		t.Errorf("section 2 with its subsections = %v", read.GetSections())
+	}
+
+	_, err = service.client.GetDocumentSection(context.Background(), &gogiv1.GetDocumentSectionRequest{
+		IndexName: "maria--aeronautics", DocumentId: "fem-notes", Position: 9})
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("a missing section: err = %v, want NotFound", err)
+	}
+	_, err = service.client.ListDocumentSections(context.Background(), &gogiv1.ListDocumentSectionsRequest{IndexName: "maria--aeronautics", DocumentId: "missing"})
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("a missing document: err = %v, want NotFound", err)
+	}
+}
+
+func TestDownloadADocument(t *testing.T) {
+	service := newTestService(t, 4*1024*1024)
+	content := strings.Repeat("0123456789", 250*1024) // 2.5 MB, so it comes in three parts
+	if _, err := upload(t, service.client, info("fem-notes"), chunk(content)); err != nil {
+		t.Fatal(err)
+	}
+
+	stream, err := service.client.DownloadDocument(context.Background(), &gogiv1.DownloadDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := stream.Recv()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.GetDocument().GetFilename() != "fe-basics.txt" {
+		t.Errorf("first message = %v, want the document", first)
+	}
+	var downloaded bytes.Buffer
+	parts := 0
+	for {
+		message, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		downloaded.Write(message.GetChunk())
+		parts++
+	}
+	if downloaded.String() != content || parts != 3 {
+		t.Errorf("downloaded %d bytes in %d parts, want %d in 3", downloaded.Len(), parts, len(content))
+	}
+}
+
+func TestAStoreOnlyDocumentIsReadyAtOnceWithoutIngestion(t *testing.T) {
+	service := newTestService(t, 1024)
+	video := &gogiv1.UploadDocumentRequest{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{
+		IndexName: "maria--aeronautics", DocumentId: "lecture-3", Filename: "lecture-3.mp4", ContentType: "video/mp4", StoreOnly: true}}}
+
+	response, err := upload(t, service.client, video, chunk("not really a video"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.GetStatus() != string(utils.JobCompleted) || len(service.workflows.ingestion) != 0 {
+		t.Errorf("status = %s, workflows = %d; want COMPLETED without ingestion", response.GetStatus(), len(service.workflows.ingestion))
+	}
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "lecture-3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GetDocument().GetStatus() != string(utils.JobCompleted) {
+		t.Errorf("document status = %s, want COMPLETED", document.GetDocument().GetStatus())
+	}
+	if content, _ := service.objects.get("gogi-documents/maria--aeronautics/lecture-3"); string(content) != "not really a video" {
+		t.Errorf("stored content = %q", content)
+	}
+}
+
+func TestDownloadPartOfADocument(t *testing.T) {
+	service := newTestService(t, 1024)
+	if _, err := upload(t, service.client, info("fem-notes"), chunk("0123456789")); err != nil {
+		t.Fatal(err)
+	}
+	download := func(offset, length int64) (string, error) {
+		stream, err := service.client.DownloadDocument(context.Background(), &gogiv1.DownloadDocumentRequest{
+			IndexName: "maria--aeronautics", DocumentId: "fem-notes", Offset: offset, Length: length})
+		if err != nil {
+			return "", err
+		}
+		var content bytes.Buffer
+		for {
+			message, err := stream.Recv()
+			if err == io.EOF {
+				return content.String(), nil
+			}
+			if err != nil {
+				return "", err
+			}
+			content.Write(message.GetChunk())
+		}
+	}
+
+	tests := []struct {
+		offset, length int64
+		want           string
+	}{{0, 0, "0123456789"}, {3, 4, "3456"}, {7, 0, "789"}, {8, 10, "89"}}
+	for _, test := range tests {
+		if got, err := download(test.offset, test.length); err != nil || got != test.want {
+			t.Errorf("download(%d, %d) = %q, %v; want %q", test.offset, test.length, got, err, test.want)
+		}
+	}
+	if _, err := download(10, 0); status.Code(err) != codes.OutOfRange {
+		t.Errorf("an offset past the end: err = %v, want OutOfRange", err)
 	}
 }

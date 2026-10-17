@@ -231,6 +231,54 @@ func (p *GenericGRPCProxy) ForwardSearchDocuments(ctx context.Context, req *gogi
 	return client.SearchDocuments(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardListDocumentSections(ctx context.Context, req *gogiv1.ListDocumentSectionsRequest) (*gogiv1.ListDocumentSectionsResponse, error) {
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewDocumentServerClient(conn).ListDocumentSections(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardGetDocumentSection(ctx context.Context, req *gogiv1.GetDocumentSectionRequest) (*gogiv1.GetDocumentSectionResponse, error) {
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewDocumentServerClient(conn).GetDocumentSection(ctx, req)
+}
+
+// ForwardDownloadDocument relays the download's parts as they arrive
+func (p *GenericGRPCProxy) ForwardDownloadDocument(req *gogiv1.DownloadDocumentRequest,
+	stream grpc.ServerStreamingServer[gogiv1.DownloadDocumentResponse]) error {
+
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	upstream, err := gogiv1.NewDocumentServerClient(conn).DownloadDocument(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+	for {
+		part, err := upstream.Recv()
+		if err == io.EOF {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if err := stream.Send(part); err != nil {
+			return err
+		}
+	}
+}
+
 //======= Indexes ==========
 
 func (p *GenericGRPCProxy) ForwardCreateIndex(
