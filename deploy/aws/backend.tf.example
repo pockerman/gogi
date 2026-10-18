@@ -1,0 +1,11 @@
+# Keeps the state in S3 rather than on the operator's machine. Make the bucket first, versioned and encrypted, then
+# copy this file to backend.tf and run `terraform init -migrate-state`.
+terraform {
+  backend "s3" {
+    bucket       = "<your state bucket>"
+    key          = "gogi/terraform.tfstate"
+    region       = "eu-west-2"
+    encrypt      = true
+    use_lockfile = true
+  }
+}
