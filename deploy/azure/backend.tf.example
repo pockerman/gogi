@@ -1,0 +1,11 @@
+# Keeps the state in Azure Storage rather than on the operator's machine. Make the storage account and container
+# first, then copy this file to backend.tf and run `terraform init -migrate-state`.
+terraform {
+  backend "azurerm" {
+    resource_group_name  = "<the storage account's resource group>"
+    storage_account_name = "<your state storage account>"
+    container_name       = "tfstate"
+    key                  = "gogi.tfstate"
+    use_azuread_auth     = true
+  }
+}
