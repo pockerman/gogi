@@ -277,6 +277,7 @@ The `llms` service selects the credential store with `GOGI_CREDENTIAL_STORE`:
 | `none` (default) | No credential store  | Registrations with a `credential_ref` are rejected                   |
 | `aws`            | AWS Secrets Manager  | The standard AWS variables: `AWS_REGION`, credentials, and `AWS_ENDPOINT_URL` for LocalStack |
 | `vault`          | HashiCorp Vault (KV v2) | `VAULT_ADDR`, `VAULT_TOKEN`, `GOGI_VAULT_KV_MOUNT` (default `secret`) |
+| `azure`          | Azure Key Vault      | `AZURE_KEY_VAULT_URL`, and the VM's managed identity or Azure's own variables, e.g. `AZURE_CLIENT_ID` |
 
 A credential named `<name>` is the secret `gogi/credentials/<name>`: in AWS Secrets Manager its
 secret string is the credential; in Vault the credential is the `value` key of the secret.
@@ -320,3 +321,4 @@ Some tests run against real services and are skipped unless these variables are 
 | `GOGI_TEST_POSTGRES_DSN`     | Registered models repository and tool service (empty `gogi_registered_llms`, `gogi_tools` and `gogi_tool_tasks`; use a test database) | `postgres://postgres:test@localhost:5432/gogi?sslmode=disable` |
 | `GOGI_TEST_AWS_ENDPOINT_URL` | AWS Secrets Manager credential store      | `http://localhost:4566` (LocalStack)           |
 | `GOGI_TEST_VAULT_ADDR`, `GOGI_TEST_VAULT_TOKEN` | HashiCorp Vault credential store | `http://localhost:8200`, `root` (`vault server -dev -dev-root-token-id=root`) |
+| `GOGI_TEST_AZURE_KEY_VAULT_URL` | Azure Key Vault credential store | `https://localhost:8443` (`docker run -d -p 8443:8443 nagyesta/lowkey-vault:5.0.0`) |

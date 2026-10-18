@@ -97,3 +97,64 @@ application's server in, by adding its address to `client_cidrs` and applying ag
   moved to the new one.
 - **The gateway's certificate** is renewed by `terraform apply` in its last 30 days, which replaces the server.
   The certificate authority's stays the same for ten years, so applications keep theirs.
+
+## On Azure
+
+[`deploy/azure`](../deploy/azure) is the Terraform for it, the same deployment as on AWS:
+
+| | |
+|---|---|
+| Server | one VM (`Standard_B4ms`), Ubuntu 24.04, with a static public IP; nothing reaches it but the gateway's port, and the operator runs commands with `az vm run-command` |
+| Data | a 64 GB managed disk, backed up every day for a week by Azure Backup |
+| Postgres | Azure Database for PostgreSQL 16, flexible server (`B_Standard_B2s`), in a subnet of its own, backed up for a week |
+| Secrets | one Key Vault: the deployment's own, and applications' provider keys (`GOGI_CREDENTIAL_STORE=azure`) |
+| Certificates | made by Terraform's `tls` provider |
+
+The server signs in to Key Vault as its own managed identity. Key Vault's names take only letters, digits and
+dashes, and ignore case, so gogi keeps a credential under an encoded name: `gogi/credentials/qubit-notes.anthropic`
+is `gogi-2fcredentials-2fqubit-2dnotes-2eanthropic`.
+
+This costs about $210 a month in UK South at pay-as-you-go prices, $140 of it the server.
+
+### Deploying
+
+You need Terraform 1.6 or later, and to be signed in with `az login` as someone who can manage the subscription's
+resources and assign roles in it.
+
+1. Keep the state somewhere private: copy `backend.tf.example` to `backend.tf` and name a storage account of your
+   own.
+2. Say which subscription, and where applications will call from, e.g. in `terraform.tfvars`:
+
+   ```hcl
+   subscription_id = "<your subscription>"
+   client_cidrs    = ["203.0.113.7/32"]
+   ```
+
+3. Apply it, as on AWS:
+
+   ```bash
+   cd deploy/azure
+   terraform init
+   terraform apply
+   terraform output -raw ca_certificate > gogi-ca.pem
+   ```
+
+4. If the images are private, put a token that can read them, then restart gogi:
+
+   ```bash
+   az keyvault secret set --vault-name "$(terraform output -raw key_vault_name)" --name deployment-registry \
+     --value '{"username":"<GitHub user>","token":"<token with read:packages>"}'
+   ```
+
+### Operating it
+
+Run commands on the server with `az vm run-command`, e.g.:
+
+```bash
+az vm run-command invoke --resource-group "$(terraform output -raw resource_group)" \
+  --name "$(terraform output -raw vm_name)" --command-id RunShellScript \
+  --scripts "cd /opt/gogi && docker compose exec -T gateway /root/gogi-admin register qubit-notes"
+```
+
+Restarting gogi (`systemctl restart gogi`), new images and the gateway's certificate work as on AWS. Postgres is
+locked against being deleted while `deletion_protection` is set.

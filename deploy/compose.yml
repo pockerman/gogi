@@ -7,14 +7,15 @@
 # - the gateway takes only calls with an application's key, and the services scope everything to its application
 # - Chroma's, MinIO's and Caddy's data are kept in ${GOGI_DATA_DIR}, a disk of its own that outlives the server
 #
-# Its settings come from .env, which the server's start script writes (deploy/aws/start-gogi.sh):
+# Its settings come from .env, which the server's start script writes (deploy/<cloud>/start-gogi.sh):
 #   GOGI_IMAGES, GOGI_IMAGE_TAG     the images, e.g. ghcr.io/pockerman and main, or sha-<commit>
 #   GOGI_DATA_DIR                   where the data is kept, e.g. /data
 #   GOGI_DB_HOST, GOGI_DB_PORT, GOGI_DB_NAME, GOGI_DB_USER, GOGI_DB_PASSWORD
 #   GOGI_MINIO_PASSWORD
 #   GOGI_TLS_NAME                   the name or address the certificate is for, e.g. the server's public IP
 #   GOGI_CREDENTIAL_STORE           where applications' provider keys are kept, e.g. aws, and the store's settings,
-#                                   e.g. GOGI_CREDENTIAL_PREFIX and AWS_REGION
+#                                   e.g. GOGI_CREDENTIAL_PREFIX and AWS_REGION, or AZURE_KEY_VAULT_URL and
+#                                   AZURE_CLIENT_ID
 #
 # The operator registers applications with gogi-admin, in the gateway's container:
 #   docker compose exec gateway /root/gogi-admin register qubit-notes
@@ -53,6 +54,9 @@ x-credential-store: &credential-store
   GOGI_CREDENTIAL_STORE: ${GOGI_CREDENTIAL_STORE:-none}
   GOGI_CREDENTIAL_PREFIX: ${GOGI_CREDENTIAL_PREFIX:-gogi/credentials/}
   AWS_REGION: ${AWS_REGION:-}
+  # on Azure: the vault, and the managed identity of the server's that may use it
+  AZURE_KEY_VAULT_URL: ${AZURE_KEY_VAULT_URL:-}
+  AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
 
 x-gogi-service: &gogi-service
   <<: *service

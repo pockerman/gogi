@@ -1,0 +1,43 @@
+#cloud-config
+# gogi's server, on Ubuntu 24.04: Docker, ../compose.yml in /opt/gogi, and gogi.service, which starts it at every
+# boot. A Terraform template; the gateway's certificate is ${certificate_serial}.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - jq
+  - xfsprogs
+
+write_files:
+  - path: /opt/gogi/compose.yml
+    encoding: b64
+    content: ${compose}
+  - path: /opt/gogi/Caddyfile
+    encoding: b64
+    content: ${caddyfile}
+  - path: /opt/gogi/start-gogi.sh
+    encoding: b64
+    permissions: "0755"
+    content: ${start_script}
+  - path: /etc/systemd/system/gogi.service
+    content: |
+      [Unit]
+      Description=gogi
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=true
+      ExecStart=/opt/gogi/start-gogi.sh
+      ExecStop=/usr/bin/docker compose --project-directory /opt/gogi down
+      TimeoutStartSec=1800
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  - systemctl enable --now gogi
