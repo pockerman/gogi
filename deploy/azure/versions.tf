@@ -22,6 +22,8 @@ terraform {
 
 provider "azurerm" {
   subscription_id = var.subscription_id
+  # the storage account takes no shared keys: Terraform signs in to it as the operator
+  storage_use_azuread = true
 
   features {
     key_vault {

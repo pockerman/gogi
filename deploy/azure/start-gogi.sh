@@ -35,9 +35,7 @@ if ! mountpoint -q /data; then
   mount "$device" /data
 fi
 grep -q " /data " /etc/fstab || echo "UUID=$uuid /data xfs defaults,nofail 0 2" >> /etc/fstab
-mkdir -p /data/chroma /data/minio /data/caddy /data/huggingface
-# Bitnami's MinIO runs as uid 1001
-chown 1001:1001 /data/minio
+mkdir -p /data/chroma /data/caddy /data/huggingface
 
 # a token for Key Vault, as the server's identity, from the instance metadata service
 token="$(curl -fsS -H Metadata:true \
@@ -63,7 +61,10 @@ GOGI_DB_PORT=$(field port)
 GOGI_DB_NAME=$(field dbname)
 GOGI_DB_USER=$(field username)
 GOGI_DB_PASSWORD=$(field password)
-GOGI_MINIO_PASSWORD=$(secret deployment-minio)
+GOGI_OBJECT_STORE=azure
+AZURE_STORAGE_ACCOUNT_URL=${storage_url}
+GOGI_DOCUMENTS_BUCKET=documents
+GOGI_PROMPTS_BUCKET=prompts
 GOGI_TLS_NAME=${tls_name}
 GOGI_CREDENTIAL_STORE=azure
 GOGI_CREDENTIAL_PREFIX=${name}/credentials/

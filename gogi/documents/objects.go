@@ -1,7 +1,9 @@
 package documents
 
-// Bucket is the object store bucket of the documents' uploaded files
-const Bucket = "gogi-documents"
+import "gogi/gogi/storage/objects"
+
+// Bucket is the object store bucket of the documents' uploaded files: GOGI_DOCUMENTS_BUCKET, gogi-documents by default
+var Bucket = objects.DocumentsBucket()
 
 // ObjectKey is where a document's uploaded file is kept: under its index's prefix, so the
 // files of an index are deleted with it

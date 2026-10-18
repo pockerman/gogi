@@ -26,6 +26,7 @@ locals {
     tls_name      = azurerm_public_ip.server.ip_address
     vault_url     = azurerm_key_vault.gogi.vault_uri
     client_id     = azurerm_user_assigned_identity.server.client_id
+    storage_url   = azurerm_storage_account.files.primary_blob_endpoint
     data_disk_lun = 0
   })
 
@@ -74,10 +75,10 @@ resource "azurerm_linux_virtual_machine" "server" {
     version   = "latest"
   }
 
-  # its secrets are in the vault before it starts
+  # its secrets are in the vault, and it may use the files, before it starts
   depends_on = [
+    azurerm_role_assignment.server_files,
     azurerm_key_vault_secret.database,
-    azurerm_key_vault_secret.minio,
     azurerm_key_vault_secret.tls,
   ]
 }

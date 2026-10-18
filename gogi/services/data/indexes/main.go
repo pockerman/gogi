@@ -2,7 +2,7 @@ package main
 
 import (
 	"gogi/gogi/services/data/indexes/impl"
-	"gogi/gogi/storage/minio"
+	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/storage/vector_storage"
 	"gogi/gogi/utils"
@@ -24,9 +24,6 @@ func main() {
 
 	PORT := utils.GetEnv("GOGI_INDEXES_PORT", ":50055")
 	PROTOCOL := utils.GetEnv("GOGI_INDEXES_PROTOCOL", "tcp")
-	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
-	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
-	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_ROOT_PASSWORD", "password")
 
 	// initialize the logger for the platform
 	utils.InitLogger()
@@ -55,8 +52,12 @@ func main() {
 
 	indexServer := grpc.NewServer()
 
-	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool,
-		minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)))
+	// deleting an index deletes its documents' files
+	store, err := objects.NewStoreFromEnv()
+	if err != nil {
+		log.Fatalf("failed to set up the object store: %v", err)
+	}
+	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool, store))
 
 	// add the health server
 	healthServer := health.NewServer()

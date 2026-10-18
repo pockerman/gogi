@@ -45,9 +45,15 @@ variable "vm_size" {
 }
 
 variable "data_disk_gb" {
-  description = "The size of the disk for Chroma's, MinIO's and the models' data"
+  description = "The size of the disk for Chroma's and the embedding models' data"
   type        = number
-  default     = 64
+  default     = 32
+}
+
+variable "file_versions_days" {
+  description = "How many days deleted files are kept in Blob Storage"
+  type        = number
+  default     = 30
 }
 
 variable "backup_days" {

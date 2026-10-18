@@ -40,15 +40,21 @@ variable "instance_type" {
 }
 
 variable "data_volume_gb" {
-  description = "The size of the disk for Chroma's, MinIO's and the models' data"
+  description = "The size of the disk for Chroma's and the embedding models' data"
   type        = number
-  default     = 50
+  default     = 30
 }
 
 variable "snapshot_days" {
   description = "How many daily snapshots of the data disk are kept"
   type        = number
   default     = 7
+}
+
+variable "file_versions_days" {
+  description = "How many days the files' deleted and replaced versions are kept in S3"
+  type        = number
+  default     = 30
 }
 
 variable "db_instance_class" {

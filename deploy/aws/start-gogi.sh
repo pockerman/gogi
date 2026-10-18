@@ -29,9 +29,7 @@ if ! mountpoint -q /data; then
   mount "$device" /data
 fi
 grep -q " /data " /etc/fstab || echo "$device /data xfs defaults,nofail 0 2" >> /etc/fstab
-mkdir -p /data/chroma /data/minio /data/caddy /data/huggingface
-# Bitnami's MinIO runs as uid 1001
-chown 1001:1001 /data/minio
+mkdir -p /data/chroma /data/caddy /data/huggingface
 
 secret() {
   aws secretsmanager get-secret-value --secret-id "$1" --query SecretString --output text
@@ -52,7 +50,10 @@ GOGI_DB_PORT=$(field port)
 GOGI_DB_NAME=$(field dbname)
 GOGI_DB_USER=$(field username)
 GOGI_DB_PASSWORD=$(field password)
-GOGI_MINIO_PASSWORD=$(secret "${minio_secret}")
+GOGI_OBJECT_STORE=s3
+GOGI_S3_ENDPOINT=s3.${region}.amazonaws.com
+GOGI_DOCUMENTS_BUCKET=${documents}
+GOGI_PROMPTS_BUCKET=${prompts}
 GOGI_TLS_NAME=${tls_name}
 GOGI_CREDENTIAL_STORE=aws
 GOGI_CREDENTIAL_PREFIX=${name}/credentials/

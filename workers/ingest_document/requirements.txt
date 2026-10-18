@@ -1,3 +1,5 @@
 chromadb
 temporalio
 minio
+azure-identity
+azure-storage-blob

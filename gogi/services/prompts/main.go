@@ -4,7 +4,7 @@ import (
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/observability"
 	"gogi/gogi/services/prompts/impl"
-	"gogi/gogi/storage/minio"
+	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
 	"net"
@@ -21,9 +21,6 @@ func main() {
 
 	PORT := utils.GetEnv("GOGI_PROMPTS_PORT", ":50058")
 	PROTOCOL := utils.GetEnv("GOGI_PROMPTS_PROTOCOL", "tcp")
-	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
-	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
-	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_ROOT_PASSWORD", "password")
 
 	// initialize the logger for the platform
 	utils.InitLogger()
@@ -45,7 +42,11 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	minioClient := minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)
+	// the prompts' texts are kept in the object store
+	store, err := objects.NewStoreFromEnv()
+	if err != nil {
+		log.Fatalf("failed to set up the object store: %v", err)
+	}
 
 	// every RPC gets a span, continuing the trace of the request
 	telemetry, closeTelemetry, err := observability.FromEnv(SERVICE_NAME)
@@ -55,7 +56,7 @@ func main() {
 	defer closeTelemetry()
 
 	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
-	gogiv1.RegisterPromptServerServer(grpcServer, impl.NewPromptServer(pool, minioClient))
+	gogiv1.RegisterPromptServerServer(grpcServer, impl.NewPromptServer(pool, store))
 
 	// add the health server
 	healthServer := health.NewServer()

@@ -16,22 +16,6 @@ resource "aws_secretsmanager_secret_version" "database" {
   })
 }
 
-resource "random_password" "minio" {
-  length  = 32
-  special = false
-}
-
-resource "aws_secretsmanager_secret" "minio" {
-  name                    = "${var.name}/deployment/minio"
-  description             = "The password of gogi's MinIO, where documents' files are kept"
-  recovery_window_in_days = 0
-}
-
-resource "aws_secretsmanager_secret_version" "minio" {
-  secret_id     = aws_secretsmanager_secret.minio.id
-  secret_string = random_password.minio.result
-}
-
 resource "aws_secretsmanager_secret" "tls" {
   name                    = "${var.name}/deployment/tls"
   description             = "The gateway's certificate and key"
