@@ -1,0 +1,16 @@
+# The gateway's gRPC over TLS, on 443. The certificate is gogi's own (./certs), from a certificate authority the
+# deployment makes, as gogi has no domain; applications check the gateway against that authority's certificate.
+{
+	auto_https off
+	admin off
+	# applications that connect by IP address send no server name
+	default_sni {$GOGI_TLS_NAME}
+}
+
+https://:443 {
+	tls /certs/gateway.crt /certs/gateway.key
+	reverse_proxy h2c://gateway:50051 {
+		# streamed responses, e.g. a model's tokens, are sent as they come
+		flush_interval -1
+	}
+}
