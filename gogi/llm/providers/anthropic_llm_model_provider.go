@@ -171,7 +171,16 @@ func (provider *AnthropicLLMModelProvider) streamMessage(ctx context.Context, me
 		return anthropic.Message{}, err
 	}
 
-	stream := provider.client.Messages.NewStreaming(ctx, params)
+	// an application's call is made with its own key
+	var keyOptions []option.RequestOption
+	if key, ok, err := applicationKey(ctx, provider.name); ok {
+		if err != nil {
+			return anthropic.Message{}, err
+		}
+		keyOptions = append(keyOptions, option.WithAPIKey(key))
+	}
+
+	stream := provider.client.Messages.NewStreaming(ctx, params, keyOptions...)
 	defer stream.Close()
 
 	message := anthropic.Message{}

@@ -41,14 +41,14 @@ func (r *GogiPromptsRepository) CreatePrompt(ctx context.Context, prompt *GogiPr
 		`INSERT INTO gogi_prompts (
 			id, name, version, owner, gogi_index, minio_path, author, model,
 			temperature, max_tokens, stop_sequences, frequency_penalty, presence_penalty,
-			test_set_id, test_set_path, metrics, created_at, updated_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)`,
+			test_set_id, test_set_path, metrics, created_at, updated_at, application
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
 		prompt.ID, prompt.Name, prompt.Version, prompt.Owner,
 		prompt.GogiIndex, prompt.MinioPath, prompt.Author, prompt.Model,
 		prompt.Temperature, prompt.MaxTokens, prompt.StopSequences,
 		prompt.FrequencyPenalty, prompt.PresencePenalty,
 		prompt.TestSetID, prompt.TestSetPath,
-		json.RawMessage(metricsJSON), prompt.CreatedAt, prompt.UpdatedAt,
+		json.RawMessage(metricsJSON), prompt.CreatedAt, prompt.UpdatedAt, prompt.Application,
 	)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (r *GogiPromptsRepository) GetPromptByID(ctx context.Context, id string) (*
 	err := r.pool.QueryRow(ctx,
 		`SELECT id, name, version, owner, gogi_index, minio_path, author, model,
 		        temperature, max_tokens, stop_sequences, frequency_penalty, presence_penalty,
-		        test_set_id, test_set_path, metrics, created_at, updated_at
+		        test_set_id, test_set_path, metrics, created_at, updated_at, application
 		 FROM gogi_prompts
 		 WHERE id = $1`,
 		id,
@@ -76,7 +76,7 @@ func (r *GogiPromptsRepository) GetPromptByID(ctx context.Context, id string) (*
 		&temperature, &maxTokens, &p.StopSequences,
 		&frequencyPenalty, &presencePenalty,
 		&testSetID, &testSetPath,
-		&metricsRaw, &p.CreatedAt, &p.UpdatedAt,
+		&metricsRaw, &p.CreatedAt, &p.UpdatedAt, &p.Application,
 	)
 
 	if errors.Is(err, pgx.ErrNoRows) {

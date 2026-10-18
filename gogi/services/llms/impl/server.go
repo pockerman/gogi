@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gogi/gogi/applications"
 	"gogi/gogi/credentials"
 	gogiv1 "gogi/gogi/gogi/v1"
 	LLM "gogi/gogi/llm"
@@ -171,8 +172,12 @@ func (s *LLMModelServer) resolveRegisteredModel(provider, model string) (provide
 		return nil, fmt.Errorf("failed to look up registered model %q: %w", model, err)
 	}
 
-	return providers.NewProviderForAdapter(registered.AdapterType, registered.Provider, registered.Endpoint,
-		s.apiKeySource(registered.CredentialRef))
+	modelProvider, err := providers.NewProviderForAdapter(registered.AdapterType, registered.Provider,
+		registered.Endpoint, s.apiKeySource(registered.CredentialRef))
+	if err != nil {
+		return nil, err
+	}
+	return servedAs(modelProvider, registered.ServedName), nil
 }
 
 // apiKeySource returns the API key source of a model registered with the given
@@ -222,12 +227,14 @@ func (s *LLMModelServer) Run(ctx context.Context, req *gogiv1.LLMRunRequest) (*g
 
 	// the request should specify the model and the provider
 	generation := s.startGeneration(ctx, req, "llms.generate")
+	ctx, req = s.forApplication(ctx, req)
 	response, err := s.providerRouter.Run(ctx, req)
 	if err != nil {
 		s.endGeneration(ctx, generation, req, "", "", nil, err)
 		return nil, runError(err)
 	}
 	grpcResponse := toGRPCLLMRunResponse(response)
+	grpcResponse.Model = applications.Unqualify(applications.FromContext(ctx), grpcResponse.GetModel())
 	s.endGeneration(ctx, generation, req, response.Provider, response.Model, grpcResponse.GetUsage(), nil)
 	return grpcResponse, nil
 
@@ -237,6 +244,8 @@ func (s *LLMModelServer) RunStream(req *gogiv1.LLMRunRequest,
 	stream grpc.ServerStreamingServer[gogiv1.LLMStreamChunkResponse]) error {
 
 	generation := s.startGeneration(stream.Context(), req, "llms.generate")
+	ctx, req := s.forApplication(stream.Context(), req)
+	stream = &applicationStream{ServerStreamingServer: stream, ctx: ctx}
 	metered := &meteredStream{ServerStreamingServer: stream, generation: generation}
 	err := s.providerRouter.RunStream(req, metered)
 	s.endGeneration(stream.Context(), generation, req, metered.provider, metered.model, metered.usage, err)
@@ -254,7 +263,7 @@ func (s *LLMModelServer) ListLLMs(ctx context.Context, req *gogiv1.ListLLMsReque
 		models = append(models, builtinModels[provider]...)
 	}
 
-	registered, err := s.registeredLLMs.ListRegisteredLLMs(ctx)
+	registered, err := s.registeredOfApplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list registered models: %v", err)
 	}
@@ -271,7 +280,8 @@ func (s *LLMModelServer) GetLLMCapabilities(ctx context.Context, req *gogiv1.Get
 		return &gogiv1.LLMCapabilitiesResponse{Capabilities: model.Capabilities}, nil
 	}
 
-	registered, err := s.registeredLLMs.GetRegisteredLLMByName(ctx, req.GetModel())
+	registered, err := s.registeredLLMs.GetRegisteredLLMByName(ctx,
+		applications.Qualify(applications.FromContext(ctx), req.GetModel()))
 	if errors.Is(err, utils.ErrRegisteredLLMNotFound) {
 		return nil, status.Errorf(codes.NotFound, "model %q not found", req.GetModel())
 	}
@@ -293,7 +303,7 @@ func (s *LLMModelServer) GetLLMProviders(ctx context.Context, req *gogiv1.GetLLM
 		}
 	}
 
-	registered, err := s.registeredLLMs.ListRegisteredLLMs(ctx)
+	registered, err := s.registeredOfApplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list registered models: %v", err)
 	}
@@ -405,20 +415,25 @@ func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLL
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
-	if err := s.checkCredential(ctx, req.GetCredentialRef()); err != nil {
+	// the model and its credential are the application's
+	application := applications.FromContext(ctx)
+	name := applications.Qualify(application, req.GetInfo().GetName())
+	credentialRef := applications.Qualify(application, req.GetCredentialRef())
+
+	if err := s.checkCredential(ctx, credentialRef); err != nil {
 		return nil, err
 	}
 
 	info := req.GetInfo()
 	provider, err := providers.NewProviderForAdapter(validated.adapterType, validated.provider, req.GetEndpoint(),
-		s.apiKeySource(req.GetCredentialRef()))
+		s.apiKeySource(credentialRef))
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
 	capabilities := info.GetCapabilities()
 	registered, err := s.registeredLLMs.UpsertRegisteredLLM(ctx, &postgres.GogiRegisteredLLM{
-		Name:              info.GetName(),
+		Name:              name,
 		Provider:          validated.provider,
 		ContextWindow:     capabilities.GetContextWindow(),
 		SupportsVision:    capabilities.GetSupportsVision(),
@@ -428,16 +443,17 @@ func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLL
 		Endpoint:          req.GetEndpoint(),
 		HealthCheck:       req.GetHealthCheck(),
 		AdapterType:       validated.adapterType,
-		CredentialRef:     req.GetCredentialRef(),
+		CredentialRef:     credentialRef,
+		ServedName:        servedName(name, info.GetName()),
 		Status:            LLMStatusProvisioning,
 	})
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to register model %q: %v", info.GetName(), err)
 	}
 
-	s.providerRouter.RegisterModel(registered.Provider, registered.Name, provider)
+	s.providerRouter.RegisterModel(registered.Provider, registered.Name, servedAs(provider, registered.ServedName))
 
-	response := &gogiv1.RegisterLLMResponse{Name: registered.Name, Status: registered.Status,
+	response := &gogiv1.RegisterLLMResponse{Name: info.GetName(), Status: registered.Status,
 		RegisteredAt: registered.CreatedAt.Format(time.RFC3339)}
 
 	Log.Infof("Registered model %s of provider %s served at %s", registered.Name, registered.Provider,
@@ -447,7 +463,7 @@ func (s *LLMModelServer) RegisterLLM(ctx context.Context, req *gogiv1.RegisterLL
 
 func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {
 
-	registered, err := s.registeredLLMs.ListRegisteredLLMs(ctx)
+	registered, err := s.registeredOfApplication(ctx)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to list registered models: %v", err)
 	}
@@ -474,7 +490,8 @@ func (s *LLMModelServer) ListRegisteredLLMs(ctx context.Context, req *gogiv1.Lis
 // A model without a health check keeps its current status
 func (s *LLMModelServer) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
 
-	registered, err := s.registeredLLMs.GetRegisteredLLMByName(ctx, req.GetName())
+	registered, err := s.registeredLLMs.GetRegisteredLLMByName(ctx,
+		applications.Qualify(applications.FromContext(ctx), req.GetName()))
 	if errors.Is(err, utils.ErrRegisteredLLMNotFound) {
 		return nil, status.Errorf(codes.NotFound, "registered model %q not found", req.GetName())
 	}
@@ -483,7 +500,7 @@ func (s *LLMModelServer) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMSta
 	}
 
 	response := &gogiv1.LLMStatusResponse{
-		Name:     registered.Name,
+		Name:     req.GetName(),
 		Status:   registered.Status,
 		Endpoint: registered.Endpoint,
 	}

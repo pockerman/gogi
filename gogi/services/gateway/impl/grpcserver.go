@@ -46,6 +46,9 @@ func NewGrpcServer(registry *ServiceRegistry, proxy *GenericGRPCProxy, options .
 	gogiv1.RegisterLLMModelServerServer(server,
 		&LLMServiceProxy{proxy: proxy})
 
+	gogiv1.RegisterCredentialServerServer(server,
+		&CredentialsProxy{proxy: proxy})
+
 	gogiv1.RegisterPromptServerServer(server,
 		&PromptsServiceProxy{proxy: proxy})
 

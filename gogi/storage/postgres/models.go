@@ -38,10 +38,12 @@ const (
 // Prompts
 
 type GogiPrompt struct {
-	ID               string
-	Name             string
-	Version          string
-	Owner            string
+	ID      string
+	Name    string
+	Version string
+	Owner   string
+	// the application that registered the prompt
+	Application      string
 	GogiIndex        string
 	MinioPath        string
 	Author           string
@@ -131,10 +133,13 @@ type GogiRegisteredLLM struct {
 	HealthCheck       string
 	AdapterType       string
 	CredentialRef     string
-	Status            string
-	LastCheckedAt     *time.Time
-	CreatedAt         time.Time
-	UpdatedAt         time.Time
+	// the name the model's server knows it by, if not Name: an application's model is kept
+	// under its name qualified by the application
+	ServedName    string
+	Status        string
+	LastCheckedAt *time.Time
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // GogiToolTask is an asynchronous tool call

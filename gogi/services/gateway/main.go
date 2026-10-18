@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	"gogi/gogi/observability"
 	"gogi/gogi/services/gateway/impl"
 	"gogi/gogi/storage/postgres"
@@ -92,8 +93,17 @@ func main() {
 	}
 	defer closeTelemetry()
 
+	// every call carries a key of the application it is for, unless gogi runs without keys
+	keysMode := utils.GetEnv("GOGI_APPLICATION_KEYS", applications.KeysOff)
+	gateway, err := applications.NewGateway(keysMode, applications.NewRepository(pool))
+	if err != nil {
+		log.Fatalf("failed to set up the application keys: %v", err)
+	}
+	log.Infof("Application keys: %s", keysMode)
+
 	// requests to models can carry images, larger than gRPC's default message size
-	serverOptions := append(telemetry.ServerOptions(), grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))
+	serverOptions := append(telemetry.ServerOptions(), gateway.ServerOptions()...)
+	serverOptions = append(serverOptions, grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))
 	grpcServer := impl.NewGrpcServer(registry, impl.NewGenericProxy(registry), serverOptions...)
 
 	lis, err := net.Listen(PROTOCOL, PORT)

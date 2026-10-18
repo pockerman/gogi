@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	"gogi/gogi/services/data/documents/impl"
 	"gogi/gogi/storage/minio"
 	"gogi/gogi/storage/postgres"
@@ -76,7 +77,8 @@ func main() {
 	objects := minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)
 	documentServer := impl.NewDocumentsServer(temporalClient, pool, objects, int64(MAX_UPLOAD_MB)*1024*1024)
 
-	grpcServer := grpc.NewServer()
+	// the indexes documents are in are the application's
+	grpcServer := grpc.NewServer(applications.ScopeFromEnv("index_name").ServerOptions()...)
 	gogiv1.RegisterDocumentServerServer(grpcServer, documentServer)
 
 	// add the health server

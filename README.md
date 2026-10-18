@@ -84,6 +84,8 @@ What the platform does today, by area. The service pages linked above have the d
 ## Getting started
 
 - [Installation](docs/installation.md): run the platform with Docker Compose or on Kubernetes.
+- [Applications](docs/applications.md): one gogi serves many applications. Each calls the gateway with its own
+  API key, keeps what it makes apart from the others, and calls the model providers with its own keys.
 - [Credentials](docs/credentials.md): the API keys of registered models and tools are kept in a secrets manager
   (HashiCorp Vault or AWS Secrets Manager), and registrations refer to them by name. This explains how to set it
   up, including locally.

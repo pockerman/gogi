@@ -14,7 +14,7 @@ const GOGI_REGISTERED_LLMS_TABLE_NAME string = "gogi_registered_llms"
 
 const registeredLLMColumns = `id, name, provider, context_window, supports_vision, supports_tools,
 	supports_streaming, supports_json_mode, endpoint, health_check, adapter_type, credential_ref, status,
-	last_checked_at, created_at, updated_at`
+	last_checked_at, created_at, updated_at, served_name`
 
 type GogiRegisteredLLMsRepository struct {
 	pool *pgxpool.Pool
@@ -40,7 +40,7 @@ func (r *GogiRegisteredLLMsRepository) UpsertRegisteredLLM(ctx context.Context,
 	// on conflict the existing id and created_at are kept and returned
 	err := r.pool.QueryRow(ctx,
 		`INSERT INTO gogi_registered_llms (`+registeredLLMColumns+`)
-		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$14)
+		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULL,$14,$14,$15)
 		 ON CONFLICT (name) DO UPDATE SET
 		     provider = EXCLUDED.provider,
 		     context_window = EXCLUDED.context_window,
@@ -52,6 +52,7 @@ func (r *GogiRegisteredLLMsRepository) UpsertRegisteredLLM(ctx context.Context,
 		     health_check = EXCLUDED.health_check,
 		     adapter_type = EXCLUDED.adapter_type,
 		     credential_ref = EXCLUDED.credential_ref,
+		     served_name = EXCLUDED.served_name,
 		     status = EXCLUDED.status,
 		     last_checked_at = NULL,
 		     updated_at = EXCLUDED.updated_at
@@ -59,6 +60,7 @@ func (r *GogiRegisteredLLMsRepository) UpsertRegisteredLLM(ctx context.Context,
 		utils.NewUUIDString(), model.Name, model.Provider, model.ContextWindow,
 		model.SupportsVision, model.SupportsTools, model.SupportsStreaming, model.SupportsJSONMode,
 		model.Endpoint, model.HealthCheck, model.AdapterType, model.CredentialRef, model.Status, now,
+		model.ServedName,
 	).Scan(&model.ID, &model.CreatedAt, &model.UpdatedAt)
 	model.LastCheckedAt = nil
 
@@ -126,7 +128,7 @@ func scanRegisteredLLM(row pgx.Row) (*GogiRegisteredLLM, error) {
 		&m.ID, &m.Name, &m.Provider, &m.ContextWindow,
 		&m.SupportsVision, &m.SupportsTools, &m.SupportsStreaming, &m.SupportsJSONMode,
 		&m.Endpoint, &m.HealthCheck, &m.AdapterType, &m.CredentialRef, &m.Status, &m.LastCheckedAt,
-		&m.CreatedAt, &m.UpdatedAt,
+		&m.CreatedAt, &m.UpdatedAt, &m.ServedName,
 	)
 	if err != nil {
 		return nil, err

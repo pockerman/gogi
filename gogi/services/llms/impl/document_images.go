@@ -5,19 +5,18 @@ import (
 	"context"
 	"io"
 
+	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/llm/providers"
 	"gogi/gogi/utils"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 )
 
-// DocumentImageFetcher reads the images that messages refer to by document from the documents service,
-// through the gateway
-func DocumentImageFetcher(gatewayURL string) (providers.ImageFetcher, error) {
-	conn, err := grpc.NewClient(gatewayURL,
+// DocumentImageFetcher reads the images that messages refer to by document from the documents service
+func DocumentImageFetcher(documentsAddress string) (providers.ImageFetcher, error) {
+	conn, err := grpc.NewClient(documentsAddress,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(utils.MaxMessageBytes())))
 	if err != nil {
@@ -26,7 +25,8 @@ func DocumentImageFetcher(gatewayURL string) (providers.ImageFetcher, error) {
 	documents := gogiv1.NewDocumentServerClient(conn)
 
 	return func(ctx context.Context, indexName, documentID string) ([]byte, string, error) {
-		ctx = metadata.AppendToOutgoingContext(ctx, "x-target-service", "documents")
+		// the document is one of the application's whose call this is
+		ctx = applications.OutgoingContext(ctx, applications.FromContext(ctx))
 		stream, err := documents.DownloadDocument(ctx, &gogiv1.DownloadDocumentRequest{IndexName: indexName, DocumentId: documentID})
 		if err != nil {
 			return nil, "", err
