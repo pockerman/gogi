@@ -24,6 +24,8 @@ const usage = `usage: gogi-admin <command>
   revoke-key <application> <key>    stop a key working; the key, or what list shows of it
   disable <application>             stop all of an application's keys working
   enable <application>              let a disabled application's keys work again
+  delete <application>              remove an application, its keys and its list of credentials; what it
+                                    made stays, unreachable
 `
 
 func main() {
@@ -89,6 +91,14 @@ func run(args []string) error {
 			return err
 		}
 		fmt.Printf("%s is %sd\n", args[1], args[0])
+	case "delete":
+		if err := need(1); err != nil {
+			return err
+		}
+		if err := repo.Delete(ctx, args[1]); err != nil {
+			return err
+		}
+		fmt.Printf("Deleted %s\n", args[1])
 	case "list":
 		return list(ctx, repo)
 	default:

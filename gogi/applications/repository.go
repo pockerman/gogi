@@ -122,16 +122,22 @@ func (r *Repository) SetDisabled(ctx context.Context, name string, disabled bool
 	return nil
 }
 
-// Delete removes the application and its keys. What it made stays in the platform
+// Delete removes the application, its keys and the list of its credentials. What it made stays in
+// the platform, and its credentials' values in the credential store
 func (r *Repository) Delete(ctx context.Context, name string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM gogi_applications WHERE name = $1`, name)
-	if err != nil {
-		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("%w: %s", ErrNotFound, name)
-	}
-	return nil
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM gogi_credentials WHERE application = $1`, name); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM gogi_applications WHERE name = $1`, name)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			return fmt.Errorf("%w: %s", ErrNotFound, name)
+		}
+		return nil
+	})
 }
 
 // Get is the application with its keys

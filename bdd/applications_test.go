@@ -661,7 +661,6 @@ func (w *world) cleanUp() error {
 		}
 		for _, statement := range []string{
 			`DELETE FROM gogi_registered_llms WHERE name LIKE $1 || '.%'`,
-			`DELETE FROM gogi_credentials WHERE application = $1`,
 		} {
 			if _, err := w.pool.Exec(ctx, statement, app.name); err != nil {
 				return err

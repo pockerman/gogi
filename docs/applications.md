@@ -43,6 +43,7 @@ docker compose exec gateway /root/gogi-admin new-key qubit-notes
 docker compose exec gateway /root/gogi-admin revoke-key qubit-notes gogi_AbCdEfG
 docker compose exec gateway /root/gogi-admin disable qubit-notes
 docker compose exec gateway /root/gogi-admin enable qubit-notes
+docker compose exec gateway /root/gogi-admin delete qubit-notes
 ```
 
 An application's name is 3 to 40 lowercase letters, digits and dashes. To rotate a key, give the
