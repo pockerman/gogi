@@ -18,7 +18,15 @@ class OpenAIEmbeddings(EmbeddingBase):
     def __init__(self, model_name: str = "text-embedding-3-small"):
         super().__init__()
         self.model_name = model_name
-        self._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        self._client: OpenAI | None = None
+
+    @property
+    def client(self) -> OpenAI:
+        # made when first used: the worker makes every embedder when it starts, and a deployment that embeds nothing
+        # with OpenAI's models has no key for them
+        if self._client is None:
+            self._client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        return self._client
 
     @property
     def embedder_id(self) -> str:
@@ -30,7 +38,7 @@ class OpenAIEmbeddings(EmbeddingBase):
 
     @override
     def embed_text(self, text: str) -> EmbeddingResponse:
-        response = self._client.embeddings.create(model=self.model_name, input=text)
+        response = self.client.embeddings.create(model=self.model_name, input=text)
         return EmbeddingResponse(embeddings=response.data[0].embedding, model_name=self.model_name)
 
     @override
@@ -38,7 +46,7 @@ class OpenAIEmbeddings(EmbeddingBase):
         embeddings: List[EmbeddingResponse] = []
         for start in range(0, len(chunks), MAX_BATCH_SIZE):
             batch = chunks[start : start + MAX_BATCH_SIZE]
-            response = self._client.embeddings.create(
+            response = self.client.embeddings.create(
                 model=self.model_name, input=[chunk.text for chunk in batch]
             )
             embeddings.extend(

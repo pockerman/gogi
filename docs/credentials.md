@@ -68,6 +68,7 @@ own secret storage. The following implementations are available:
 |------------------------|-------------------------------------|
 | ``AWSSecretsManagerStore`` | AWS Secrets Manager             |
 | ``VaultStore``             | HashiCorp Vault, KV v2 secrets engine |
+| ``AzureKeyVaultStore``     | Azure Key Vault                    |
 | ``MemoryCredentialStore``  | In memory, for tests               |
 
 The configured store is wrapped by ``CachingCredentialStore``, which caches credentials for a
@@ -94,6 +95,7 @@ The ``llms`` service selects the credential store with ``GOGI_CREDENTIAL_STORE``
 | ``none`` (default) | No credential store     | Registrations with a ``credential_ref`` are rejected                  |
 | ``aws``            | AWS Secrets Manager     | The standard AWS variables: ``AWS_REGION``, the AWS credentials (or an IAM role), and ``AWS_ENDPOINT_URL`` for LocalStack |
 | ``vault``          | HashiCorp Vault (KV v2) | ``VAULT_ADDR``, ``VAULT_TOKEN``, ``GOGI_VAULT_KV_MOUNT`` (default ``secret``) |
+| ``azure``          | Azure Key Vault         | ``AZURE_KEY_VAULT_URL``, e.g. ``https://gogi.vault.azure.net/``; signed in as an Azure VM's managed identity (``AZURE_CLIENT_ID`` chooses one of several), or with Azure's own variables, e.g. ``AZURE_TENANT_ID``, ``AZURE_CLIENT_ID`` and ``AZURE_CLIENT_SECRET`` |
 
 Settings common to all stores:
 
@@ -114,6 +116,12 @@ A credential named ``<name>`` is the secret ``<prefix><name>``, by default
   as its secret string.
 - **HashiCorp Vault**: the secret at path ``gogi/credentials/<name>`` of the KV v2 engine
   mounted at ``GOGI_VAULT_KV_MOUNT``, with the credential under the ``value`` key.
+- **Azure Key Vault**: the secret whose name is ``gogi/credentials/<name>`` encoded, with the
+  credential as its value. Key Vault's names take only letters, digits and dashes, and ignore
+  case, so lowercase letters and digits are kept and every other character is a dash and its
+  hex code: ``gogi/credentials/qubit-notes.anthropic`` is
+  ``gogi-2fcredentials-2fqubit-2dnotes-2eanthropic``. A name may be at most 127 characters
+  once encoded.
 
 Credentials are added to the secrets manager by whoever manages the secrets, with the secrets
 manager's own tools; the platform API offers no way to create or read them.

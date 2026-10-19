@@ -261,6 +261,27 @@ The migrations create the following tables:
 | 000011 | Replaces the session tables of 000004 with `gogi_llm_sessions`, `gogi_llm_messages`, `gogi_llm_session_summaries`, `gogi_llm_memories` (see [session service](session_service.md)) |
 | 000012 | `obs_spans`, `obs_generations`, `obs_traces`, `obs_scores`, `obs_logs`, `obs_metric_points`, `obs_budget_alerts`, `obs_budget_notifications` (see [observability service](observability_service.md)) |
 
+## Published images
+
+Every push to ``main`` publishes ``gogi``'s images to the GitHub Container Registry
+(``.github/workflows/images.yml``), tagged ``main`` and ``sha-<commit>``:
+
+| Image | What it runs |
+|-------|--------------|
+| ``ghcr.io/pockerman/gogi-gateway`` | the gateway, with ``gogi-admin`` |
+| ``ghcr.io/pockerman/gogi-documents``, ``-indexes``, ``-llms``, ``-prompts``, ``-llm-sessions``, ``-llm-tools``, ``-workflows``, ``-observability``, ``-guardrails`` | the services |
+| ``ghcr.io/pockerman/gogi-ingest-documents-go-worker`` | the Go ingestion worker |
+| ``ghcr.io/pockerman/gogi-python-worker`` | the Python ingestion, search and delete workers |
+| ``ghcr.io/pockerman/gogi-migrations`` | the database migrations |
+
+The migrations image brings the database of ``DATABASE_URL`` up to date; run it before the services start:
+
+```
+docker run --rm -e DATABASE_URL="postgres://gogi:...@db:5432/gogi?sslmode=require" ghcr.io/pockerman/gogi-migrations:main
+```
+
+Its arguments are those of ``migrate``, ``up`` by default, e.g. ``version`` or ``down 1``.
+
 ## Credentials for registered models
 
 A self-hosted model registered with the `llms` service (`RegisterLLM`) can reference a
@@ -277,6 +298,7 @@ The `llms` service selects the credential store with `GOGI_CREDENTIAL_STORE`:
 | `none` (default) | No credential store  | Registrations with a `credential_ref` are rejected                   |
 | `aws`            | AWS Secrets Manager  | The standard AWS variables: `AWS_REGION`, credentials, and `AWS_ENDPOINT_URL` for LocalStack |
 | `vault`          | HashiCorp Vault (KV v2) | `VAULT_ADDR`, `VAULT_TOKEN`, `GOGI_VAULT_KV_MOUNT` (default `secret`) |
+| `azure`          | Azure Key Vault      | `AZURE_KEY_VAULT_URL`, and the VM's managed identity or Azure's own variables, e.g. `AZURE_CLIENT_ID` |
 
 A credential named `<name>` is the secret `gogi/credentials/<name>`: in AWS Secrets Manager its
 secret string is the credential; in Vault the credential is the `value` key of the secret.
@@ -320,3 +342,4 @@ Some tests run against real services and are skipped unless these variables are 
 | `GOGI_TEST_POSTGRES_DSN`     | Registered models repository and tool service (empty `gogi_registered_llms`, `gogi_tools` and `gogi_tool_tasks`; use a test database) | `postgres://postgres:test@localhost:5432/gogi?sslmode=disable` |
 | `GOGI_TEST_AWS_ENDPOINT_URL` | AWS Secrets Manager credential store      | `http://localhost:4566` (LocalStack)           |
 | `GOGI_TEST_VAULT_ADDR`, `GOGI_TEST_VAULT_TOKEN` | HashiCorp Vault credential store | `http://localhost:8200`, `root` (`vault server -dev -dev-root-token-id=root`) |
+| `GOGI_TEST_AZURE_KEY_VAULT_URL` | Azure Key Vault credential store | `https://localhost:8443` (`docker run -d -p 8443:8443 nagyesta/lowkey-vault:5.0.0`) |

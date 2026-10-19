@@ -1,0 +1,51 @@
+#cloud-config
+# gogi's server, on Amazon Linux 2023: Docker, ../compose.yml in /opt/gogi, and gogi.service, which starts it at
+# every boot. A Terraform template; the gateway's certificate is ${certificate_serial}.
+package_update: true
+packages:
+  - docker
+  - jq
+
+write_files:
+  - path: /opt/gogi/compose.yml
+    encoding: b64
+    content: ${compose}
+  - path: /opt/gogi/Caddyfile
+    encoding: b64
+    content: ${caddyfile}
+  - path: /opt/gogi/start-gogi.sh
+    encoding: b64
+    permissions: "0755"
+    content: ${start_script}
+  - path: /etc/systemd/system/gogi.service
+    content: |
+      [Unit]
+      Description=gogi
+      Requires=docker.service
+      After=docker.service network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=true
+      ExecStart=/opt/gogi/start-gogi.sh
+      ExecStop=/usr/bin/docker compose --project-directory /opt/gogi down
+      TimeoutStartSec=1800
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Docker Compose, which Amazon Linux doesn't package; it isn't installed unless it's the release's
+  - - sh
+    - -ec
+    - |
+      plugin=/usr/local/lib/docker/cli-plugins/docker-compose
+      mkdir -p "$(dirname "$plugin")"
+      curl -fsSL -o "$plugin.download" https://github.com/docker/compose/releases/download/v2.40.3/docker-compose-linux-x86_64
+      echo "dba9d98e1ba5bfe11d88c99b9bd32fc4a0624a30fafe68eea34d61a3e42fd372  $plugin.download" | sha256sum --check
+      chmod +x "$plugin.download"
+      mv "$plugin.download" "$plugin"
+  - systemctl daemon-reload
+  - systemctl enable --now docker
+  - systemctl enable --now gogi

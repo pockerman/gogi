@@ -1,0 +1,289 @@
+# gogi on one server, for a deployment many applications use (docs/deployment.md).
+#
+# Unlike ../docker-compose.yml, which builds everything for development, this runs the published images
+# (ghcr.io/<owner>/gogi-<image>), and:
+# - Postgres is the cloud's (RDS, or Azure Database for PostgreSQL), not a container; Temporal keeps its state there too
+# - only Caddy is reachable from outside: it serves the gateway's gRPC over TLS on 443, with the certificate in ./certs
+# - the gateway takes only calls with an application's key, and the services scope everything to its application
+# - Chroma's, MinIO's and Caddy's data are kept in ${GOGI_DATA_DIR}, a disk of its own that outlives the server
+#
+# Its settings come from .env, which the server's start script writes (deploy/<cloud>/start-gogi.sh):
+#   GOGI_IMAGES, GOGI_IMAGE_TAG     the images, e.g. ghcr.io/pockerman and main, or sha-<commit>
+#   GOGI_DATA_DIR                   where the data is kept, e.g. /data
+#   GOGI_DB_HOST, GOGI_DB_PORT, GOGI_DB_NAME, GOGI_DB_USER, GOGI_DB_PASSWORD
+#   GOGI_MINIO_PASSWORD
+#   GOGI_TLS_NAME                   the name or address the certificate is for, e.g. the server's public IP
+#   GOGI_CREDENTIAL_STORE           where applications' provider keys are kept, e.g. aws, and the store's settings,
+#                                   e.g. GOGI_CREDENTIAL_PREFIX and AWS_REGION, or AZURE_KEY_VAULT_URL and
+#                                   AZURE_CLIENT_ID
+#
+# The operator registers applications with gogi-admin, in the gateway's container:
+#   docker compose exec gateway /root/gogi-admin register qubit-notes
+
+name: gogi
+
+x-service: &service
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "5"
+
+x-gogi-environment: &gogi-environment
+  GOGI_LOG_LEVEL: ${GOGI_LOG_LEVEL:-info}
+  DATABASE_URL: postgres://${GOGI_DB_USER}:${GOGI_DB_PASSWORD}@${GOGI_DB_HOST}:${GOGI_DB_PORT:-5432}/${GOGI_DB_NAME:-gogi}?sslmode=${GOGI_DB_SSLMODE:-require}
+  GOGI_GATEWAY_URL: gateway:50051
+  # gRPC inside the server is plaintext; TLS ends at Caddy
+  GOGI_GATEWAY_INSECURE: "1"
+  GOGI_OBSERVABILITY_ADDR: observability:50062
+  # every call must say which application it is for, as the gateway does once it has taken the application's key
+  GOGI_REQUIRE_APPLICATION: "true"
+
+x-vector-db: &vector-db
+  GOGI_VECTOR_DB_TYPE: chroma
+  GOGI_VECTOR_DB_HOST: chromadb
+  GOGI_VECTOR_DB_PORT: "8000"
+
+x-minio: &minio
+  GOGI_MINIO_HOST: minio:9000
+  GOGI_MINIO_ROOT_USER: gogi
+  GOGI_MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
+
+x-credential-store: &credential-store
+  GOGI_CREDENTIAL_STORE: ${GOGI_CREDENTIAL_STORE:-none}
+  GOGI_CREDENTIAL_PREFIX: ${GOGI_CREDENTIAL_PREFIX:-gogi/credentials/}
+  AWS_REGION: ${AWS_REGION:-}
+  # on Azure: the vault, and the managed identity of the server's that may use it
+  AZURE_KEY_VAULT_URL: ${AZURE_KEY_VAULT_URL:-}
+  AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
+
+x-gogi-service: &gogi-service
+  <<: *service
+  depends_on:
+    migrations:
+      condition: service_completed_successfully
+
+x-python-worker: &python-worker
+  <<: *service
+  image: ${GOGI_IMAGES}/gogi-python-worker:${GOGI_IMAGE_TAG}
+  # the embedding models, downloaded once, e.g. CLIP's 1.7 GB, for the three workers and kept when they're replaced
+  volumes:
+    - ${GOGI_DATA_DIR}/huggingface:/cache/huggingface
+  depends_on:
+    temporal:
+      condition: service_healthy
+    minio:
+      condition: service_started
+    chromadb:
+      condition: service_started
+
+x-python-worker-environment: &python-worker-environment
+  TEMPORAL_HOST: temporal:7233
+  HF_HOME: /cache/huggingface
+  MINIO_HOST: minio:9000
+  MINIO_ROOT_USER: gogi
+  MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
+  VECTOR_STORAGE_TYPE: chromadb
+  VECTOR_STORAGE_HOST: chromadb
+  VECTOR_STORAGE_PORT: "8000"
+  DB_HOST: ${GOGI_DB_HOST}
+  DB_PORT: ${GOGI_DB_PORT:-5432}
+  DB_NAME: ${GOGI_DB_NAME:-gogi}
+  DB_USER: ${GOGI_DB_USER}
+  DB_PASSWORD: ${GOGI_DB_PASSWORD}
+  # only for material embedded with OpenAI's models; the default embeddings run in the worker
+  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+
+services:
+
+  caddy:
+    <<: *service
+    image: caddy:2.10.2-alpine
+    ports:
+      - "443:443"
+    environment:
+      GOGI_TLS_NAME: ${GOGI_TLS_NAME}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - ${GOGI_DATA_DIR}/caddy:/data
+    depends_on:
+      - gateway
+
+  migrations:
+    image: ${GOGI_IMAGES}/gogi-migrations:${GOGI_IMAGE_TAG}
+    environment:
+      DATABASE_URL: postgres://${GOGI_DB_USER}:${GOGI_DB_PASSWORD}@${GOGI_DB_HOST}:${GOGI_DB_PORT:-5432}/${GOGI_DB_NAME:-gogi}?sslmode=${GOGI_DB_SSLMODE:-require}
+
+  temporal:
+    <<: *service
+    image: temporalio/auto-setup:1.29.1
+    environment:
+      DB: postgres12
+      DB_PORT: ${GOGI_DB_PORT:-5432}
+      POSTGRES_SEEDS: ${GOGI_DB_HOST}
+      POSTGRES_USER: ${GOGI_DB_USER}
+      POSTGRES_PWD: ${GOGI_DB_PASSWORD}
+      DBNAME: temporal
+      VISIBILITY_DBNAME: temporal_visibility
+      # encrypted, as the cloud's Postgres requires; its certificate isn't checked, as it's inside the network
+      POSTGRES_TLS_ENABLED: ${GOGI_DB_TLS:-true}
+      POSTGRES_TLS_DISABLE_HOST_VERIFICATION: "true"
+      SQL_TLS_ENABLED: ${GOGI_DB_TLS:-true}
+      SQL_HOST_VERIFICATION: "false"
+      # a small database takes a hundred or so connections, which gogi's services share with Temporal
+      SQL_MAX_CONNS: "10"
+      SQL_MAX_IDLE_CONNS: "5"
+      SQL_VIS_MAX_CONNS: "5"
+    healthcheck:
+      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233 | grep -q SERVING"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  chromadb:
+    <<: *service
+    image: chromadb/chroma:1.4.0
+    volumes:
+      - ${GOGI_DATA_DIR}/chroma:/data
+    # every collection holds files open: the default limit of 1024 runs out after a few hundred
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+  minio:
+    <<: *service
+    image: bitnamilegacy/minio:2025.5.24-debian-12-r5
+    environment:
+      MINIO_ROOT_USER: gogi
+      MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
+    volumes:
+      - ${GOGI_DATA_DIR}/minio:/bitnami/minio/data
+
+  gateway:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-gateway:${GOGI_IMAGE_TAG}
+    environment:
+      <<: *gogi-environment
+      GOGI_APPLICATION_KEYS: required
+      GOGI_GATEWAY_PORT: ":50051"
+      GOGI_GATEWAY_PROTOCOL: tcp
+      GOGI_WORKFLOW_SERVICE_ADDR: workflows:50053
+      GOGI_DOCUMENT_SERVICE_ADDR: documents:50054
+      GOGI_INDEX_SERVICE_ADDR: indexes:50055
+      GOGI_LLM_SERVICE_ADDR: llms:50057
+      GOGI_PROMPTS_SERVICE_ADDR: prompts:50058
+      GOGI_LLM_SESSIONS_ADDR: llm-sessions:50059
+      GOGI_LLM_TOOLS_SERVICE_ADDR: llm-tools:50060
+      GOGI_GUARDRAILS_SERVICE_ADDR: guardrails:50061
+      GOGI_OBSERVABILITY_SERVICE_ADDR: observability:50062
+
+  documents:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-documents:${GOGI_IMAGE_TAG}
+    environment:
+      <<: [*gogi-environment, *vector-db, *minio]
+      TEMPORAL_HOST: temporal:7233
+      GOGI_INGESTION_DOCUMENT_QUEUE_NAME: ingestion-document-queue
+      GOGI_DOCUMENTS_MAX_UPLOAD_MB: ${GOGI_DOCUMENTS_MAX_UPLOAD_MB:-100}
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      temporal:
+        condition: service_healthy
+
+  indexes:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-indexes:${GOGI_IMAGE_TAG}
+    environment:
+      <<: [*gogi-environment, *vector-db, *minio]
+
+  llms:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-llms:${GOGI_IMAGE_TAG}
+    environment:
+      <<: [*gogi-environment, *vector-db, *credential-store]
+      GOGI_LLMS_PORT: ":50057"
+
+  prompts:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-prompts:${GOGI_IMAGE_TAG}
+    environment:
+      <<: [*gogi-environment, *minio]
+      GOGI_PROMPTS_PORT: ":50058"
+
+  llm-sessions:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-llm-sessions:${GOGI_IMAGE_TAG}
+    environment:
+      <<: *gogi-environment
+      GOGI_LLMS_SESSION_PORT: ":50059"
+      GOGI_LLM_SERVICE_ADDR: llms:50057
+
+  llm-tools:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-llm-tools:${GOGI_IMAGE_TAG}
+    environment:
+      <<: [*gogi-environment, *credential-store]
+      GOGI_LLM_TOOLS_PORT: ":50060"
+
+  workflows:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-workflows:${GOGI_IMAGE_TAG}
+    environment:
+      <<: *gogi-environment
+      GOGI_WORKFLOWS_PORT: ":50053"
+
+  observability:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-observability:${GOGI_IMAGE_TAG}
+    environment:
+      <<: *gogi-environment
+      GOGI_OBSERVABILITY_PORT: ":50062"
+
+  guardrails:
+    <<: *gogi-service
+    image: ${GOGI_IMAGES}/gogi-guardrails:${GOGI_IMAGE_TAG}
+    environment:
+      <<: *gogi-environment
+      GOGI_GUARDRAILS_PORT: ":50061"
+
+  # orchestrates ingestions, searches and deletes; the Python workers below run their activities
+  ingest-documents-go-worker:
+    <<: *service
+    image: ${GOGI_IMAGES}/gogi-ingest-documents-go-worker:${GOGI_IMAGE_TAG}
+    environment:
+      GOGI_LOG_LEVEL: ${GOGI_LOG_LEVEL:-info}
+      TEMPORAL_HOST: temporal:7233
+      WORK_QUEUE: ingestion-document-queue
+      GOGI_SEARCH_DOCUMENTS_QUEUE_NAME: search-documents-queue
+      GOGI_DELETE_DOCUMENTS_QUEUE_NAME: delete-documents-queue
+    depends_on:
+      temporal:
+        condition: service_healthy
+
+  # one image, three workers: each serves one activity on a queue of its own, so long ingestions don't hold up
+  # searches and deletes
+  ingest-documents-python-worker:
+    <<: *python-worker
+    environment:
+      <<: *python-worker-environment
+      TASK_QUEUE: ingestion-document-queue
+      ACTIVITIES: ingest_document
+
+  search-document-worker:
+    <<: *python-worker
+    environment:
+      <<: *python-worker-environment
+      TASK_QUEUE: search-documents-queue
+      ACTIVITIES: search_document
+
+  delete-document-worker:
+    <<: *python-worker
+    environment:
+      <<: *python-worker-environment
+      TASK_QUEUE: delete-documents-queue
+      ACTIVITIES: delete_document

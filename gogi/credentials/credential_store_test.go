@@ -165,6 +165,21 @@ func TestNewCredentialStoreFromEnv(t *testing.T) {
 	}
 
 	t.Setenv("GOGI_CREDENTIAL_STORE", "azure")
+	t.Setenv("AZURE_KEY_VAULT_URL", "https://gogi.vault.azure.net/")
+	store, err = NewCredentialStoreFromEnv(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keyVault, ok := store.(*CachingCredentialStore).store.(*AzureKeyVaultStore); !ok || keyVault.prefix != defaultCredentialPrefix {
+		t.Errorf("expected an Azure Key Vault store, got %T", store.(*CachingCredentialStore).store)
+	}
+
+	t.Setenv("AZURE_KEY_VAULT_URL", "")
+	if _, err := NewCredentialStoreFromEnv(ctx); err == nil {
+		t.Errorf("expected an error for Azure Key Vault without its address")
+	}
+
+	t.Setenv("GOGI_CREDENTIAL_STORE", "gcp")
 	if _, err := NewCredentialStoreFromEnv(ctx); err == nil {
 		t.Errorf("expected an error for an unknown store")
 	}
