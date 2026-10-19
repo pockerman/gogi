@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	"gogi/gogi/services/data/indexes/impl"
 	"gogi/gogi/storage/minio"
 	"gogi/gogi/storage/postgres"
@@ -53,7 +54,8 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	indexServer := grpc.NewServer()
+	// indexes, and their owners and members, are the application's
+	indexServer := grpc.NewServer(applications.ScopeFromEnv(impl.ScopedFields...).ServerOptions()...)
 
 	gogiv1.RegisterIndexServiceServer(indexServer, impl.NewIndexServer(chromaDBClient, pool,
 		minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)))

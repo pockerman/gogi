@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"gogi/gogi/applications"
 	"gogi/gogi/credentials"
 	"gogi/gogi/llm/pricing"
 	LLM_PROVIDERS "gogi/gogi/llm/providers"
@@ -92,11 +93,12 @@ func main() {
 	}
 	modelRouter.SetCircuitBreaker(breaker)
 
-	// images messages refer to by document are read from the documents service, through the gateway
-	gatewayURL := utils.GetEnv("GOGI_GATEWAY_URL", "gateway:50051")
-	imageFetcher, err := impl.DocumentImageFetcher(gatewayURL)
+	// images messages refer to by document are read from the documents service, for the
+	// application whose call it is; not through the gateway, which needs an application's key
+	documentsAddress := utils.GetEnv("GOGI_DOCUMENT_SERVICE_ADDR", "documents:50054")
+	imageFetcher, err := impl.DocumentImageFetcher(documentsAddress)
 	if err != nil {
-		log.Fatalf("failed to connect to the gateway at %s: %v", gatewayURL, err)
+		log.Fatalf("failed to connect to the documents service at %s: %v", documentsAddress, err)
 	}
 	modelRouter.SetImageFetcher(imageFetcher)
 
@@ -117,7 +119,9 @@ func main() {
 	defer closeTelemetry()
 
 	// requests can carry images, larger than gRPC's default message size
-	grpcServer := grpc.NewServer(append(telemetry.ServerOptions(), grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))...)
+	// models and credentials are the application's whose call it is
+	serverOptions := append(telemetry.ServerOptions(), applications.ScopeFromEnv().ServerOptions()...)
+	grpcServer := grpc.NewServer(append(serverOptions, grpc.MaxRecvMsgSize(utils.MaxMessageBytes()))...)
 	// the prices of the models, to put a cost on every call
 	prices, err := pricing.Load(utils.GetEnv("GOGI_MODEL_PRICES_FILE", ""))
 	if err != nil {
@@ -126,6 +130,8 @@ func main() {
 	modelServer := impl.NewLLMModelServer(chromaDBClient, pool, modelRouter, credentialStore)
 	modelServer.SetTelemetry(telemetry, prices)
 	gogiv1.RegisterLLMModelServerServer(grpcServer, modelServer)
+	// each application's own keys, e.g. for the built-in providers
+	gogiv1.RegisterCredentialServerServer(grpcServer, impl.NewCredentialServer(credentialStore, pool))
 
 	// add the health server
 	healthServer := health.NewServer()

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/observability"
 	"gogi/gogi/services/prompts/impl"
@@ -54,7 +55,8 @@ func main() {
 	}
 	defer closeTelemetry()
 
-	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
+	// prompts are the application's; they are found by id, so the server checks whose they are
+	grpcServer := grpc.NewServer(append(telemetry.ServerOptions(), applications.ScopeFromEnv(impl.ScopedFields...).ServerOptions()...)...)
 	gogiv1.RegisterPromptServerServer(grpcServer, impl.NewPromptServer(pool, minioClient))
 
 	// add the health server
