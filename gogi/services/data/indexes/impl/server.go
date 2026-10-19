@@ -3,6 +3,7 @@ package impl
 import (
 	"context"
 	"errors"
+	"gogi/gogi/applications"
 	"gogi/gogi/documents"
 	"sort"
 	"time"
@@ -29,6 +30,10 @@ type IndexServer struct {
 	gogiIndexRepo  postgres.GogiIndexRepository
 	objects        ObjectStore
 }
+
+// ScopedFields hold the names an application gives its indexes and their users, which are kept
+// qualified by the application
+var ScopedFields = []string{"index_name", "owner", "owner_name", "member", "user"}
 
 // ObjectStore keeps the documents' uploaded files
 type ObjectStore interface {
@@ -117,11 +122,24 @@ func (s *IndexServer) GetIndexByName(ctx context.Context, req *gogiv1.GetIndexBy
 func (s *IndexServer) GetIndexById(ctx context.Context, req *gogiv1.GetIndexByIdRequest) (*gogiv1.IndexResponse, error) {
 	log.Infof("Getting index %s", req.GetIndexId())
 
-	index, err := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+	index, err := s.indexOfApplication(ctx, req.GetIndexId())
 	if err != nil {
 		return nil, indexError(err, req.GetIndexId())
 	}
 	return toIndexResponse(index), nil
+}
+
+// indexOfApplication is the index with the id, if it is the application's: an index is found by
+// its id, which does not say whose it is
+func (s *IndexServer) indexOfApplication(ctx context.Context, id string) (postgres.GogiIndex, error) {
+	index, err := s.gogiIndexRepo.GetIndexById(id)
+	if err != nil {
+		return postgres.GogiIndex{}, err
+	}
+	if !applications.Owns(applications.FromContext(ctx), index.Name) {
+		return postgres.GogiIndex{}, utils.ErrIndexNotFound
+	}
+	return index, nil
 }
 
 func (s *IndexServer) SetIndexMember(ctx context.Context, req *gogiv1.SetIndexMemberRequest) (*gogiv1.IndexResponse, error) {
@@ -222,7 +240,7 @@ func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteI
 func (s *IndexServer) DeleteIndexById(ctx context.Context, req *gogiv1.DeleteIndexByIdRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting index %s", req.GetIndexId())
 
-	index, err := s.gogiIndexRepo.GetIndexById(req.GetIndexId())
+	index, err := s.indexOfApplication(ctx, req.GetIndexId())
 	if errors.Is(err, utils.ErrIndexNotFound) {
 		return &gogiv1.DeleteIndexResponse{Success: false}, nil
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/observability"
 	"gogi/gogi/services/llm_sessions/impl"
@@ -74,7 +75,9 @@ func main() {
 	}
 	defer closeTelemetry()
 
-	grpcServer := grpc.NewServer(telemetry.ServerOptions()...)
+	// sessions, and the users they and memories are of, are the application's
+	grpcServer := grpc.NewServer(append(telemetry.ServerOptions(),
+		applications.ScopeFromEnv("session_id", "user_id").ServerOptions()...)...)
 	gogiv1.RegisterLLMSessionServerServer(grpcServer, impl.NewLLMSessionServer(store, assembler, config))
 
 	// add the health server

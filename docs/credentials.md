@@ -31,6 +31,10 @@ The ``llms`` service reads the keys of the built-in providers from its environme
 
 Never commit real keys to the repository.
 
+These keys are used only when ``gogi`` runs without application keys. Where applications subscribe
+to ``gogi``, each calls the providers with its own keys, stored with ``StoreCredential`` as the
+credentials ``anthropic`` and ``openai``; see [Applications](applications.md).
+
 ## Credentials of registered models
 
 ### Design

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
@@ -13,6 +14,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+// ScopedFields hold the names an application gives its prompts and the indexes they are for. A
+// prompt's content is kept under its qualified name, so applications' prompts of the same name and
+// version are kept apart
+var ScopedFields = []string{"prompt_name", "gogi_index"}
 
 type PromptServer struct {
 	gogiv1.UnimplementedPromptServerServer
@@ -45,6 +51,7 @@ func (s *PromptServer) RegisterPrompt(ctx context.Context, req *gogiv1.PromptReg
 	prompt, err := s.gogiPromptsRepo.CreatePrompt(ctx, &postgres.GogiPrompt{
 		Name:             req.GetPromptName(),
 		Version:          req.GetPromptVersion(),
+		Application:      applications.FromContext(ctx),
 		GogiIndex:        req.GetGogiIndex(),
 		MinioPath:        objectPath,
 		Author:           meta.GetAuthor(),
@@ -67,11 +74,23 @@ func (s *PromptServer) RegisterPrompt(ctx context.Context, req *gogiv1.PromptReg
 	}, nil
 }
 
-func (s *PromptServer) GetPrompt(ctx context.Context, req *gogiv1.PromptGetRequest) (*gogiv1.PromptGetResponse, error) {
-
-	prompt, err := s.gogiPromptsRepo.GetPromptByID(ctx, req.GetPromptId())
+// promptOfApplication is the prompt with the id, if the application registered it
+func (s *PromptServer) promptOfApplication(ctx context.Context, id string) (*postgres.GogiPrompt, error) {
+	prompt, err := s.gogiPromptsRepo.GetPromptByID(ctx, id)
 	if err != nil {
 		return nil, status.Errorf(codes.NotFound, "prompt not found: %v", err)
+	}
+	if prompt.Application != applications.FromContext(ctx) {
+		return nil, status.Errorf(codes.NotFound, "prompt not found: %s", id)
+	}
+	return prompt, nil
+}
+
+func (s *PromptServer) GetPrompt(ctx context.Context, req *gogiv1.PromptGetRequest) (*gogiv1.PromptGetResponse, error) {
+
+	prompt, err := s.promptOfApplication(ctx, req.GetPromptId())
+	if err != nil {
+		return nil, err
 	}
 
 	content, err := s.content(ctx, prompt.MinioPath)
@@ -106,9 +125,9 @@ func (s *PromptServer) GetPrompt(ctx context.Context, req *gogiv1.PromptGetReque
 
 func (s *PromptServer) DeletePrompt(ctx context.Context, req *gogiv1.PromptDeleteRequest) (*gogiv1.PromptDeleteResponse, error) {
 
-	prompt, err := s.gogiPromptsRepo.GetPromptByID(ctx, req.GetPromptId())
+	prompt, err := s.promptOfApplication(ctx, req.GetPromptId())
 	if err != nil {
-		return nil, status.Errorf(codes.NotFound, "prompt not found: %v", err)
+		return nil, err
 	}
 
 	if err := s.objects.Remove(ctx, s.bucket, prompt.MinioPath); err != nil {

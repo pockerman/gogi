@@ -89,6 +89,33 @@ services:
       - indexes
       - workflows
       - postgres
+  # the gateway as it runs where applications subscribe to gogi: every call carries a key of its
+  # application (gogi-admin register <application>). It shares the services with the gateway above,
+  # which needs no keys and serves every call as the "default" application, as in development
+  gateway-applications:
+    build:
+      context: .
+      dockerfile: docker/gateway.Dockerfile
+    container_name: gogi-gateway-applications
+    ports:
+      - "50050:50051"
+    environment:
+      - GOGI_APPLICATION_KEYS=required
+      - GOGI_OBSERVABILITY_ADDR=observability:50062
+      - GOGI_GATEWAY_PORT=:50051
+      - GOGI_GATEWAY_PROTOCOL=tcp
+      - GOGI_LOG_LEVEL=debug
+      - GOGI_WORKFLOW_SERVICE_ADDR=workflows:50053
+      - GOGI_DOCUMENT_SERVICE_ADDR=documents:50054
+      - GOGI_INDEX_SERVICE_ADDR=indexes:50055
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
+      - GOGI_PROMPTS_SERVICE_ADDR=prompts:50058
+      - GOGI_LLM_SESSIONS_ADDR=llm-sessions:50059
+      - GOGI_LLM_TOOLS_SERVICE_ADDR=llm-tools:50060
+      - GOGI_GUARDRAILS_SERVICE_ADDR=guardrails:50061
+      - GOGI_OBSERVABILITY_SERVICE_ADDR=observability:50062
+    depends_on:
+      - gateway
   documents:
     build:  
       context: .

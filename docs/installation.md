@@ -261,6 +261,27 @@ The migrations create the following tables:
 | 000011 | Replaces the session tables of 000004 with `gogi_llm_sessions`, `gogi_llm_messages`, `gogi_llm_session_summaries`, `gogi_llm_memories` (see [session service](session_service.md)) |
 | 000012 | `obs_spans`, `obs_generations`, `obs_traces`, `obs_scores`, `obs_logs`, `obs_metric_points`, `obs_budget_alerts`, `obs_budget_notifications` (see [observability service](observability_service.md)) |
 
+## Published images
+
+Every push to ``main`` publishes ``gogi``'s images to the GitHub Container Registry
+(``.github/workflows/images.yml``), tagged ``main`` and ``sha-<commit>``:
+
+| Image | What it runs |
+|-------|--------------|
+| ``ghcr.io/pockerman/gogi-gateway`` | the gateway, with ``gogi-admin`` |
+| ``ghcr.io/pockerman/gogi-documents``, ``-indexes``, ``-llms``, ``-prompts``, ``-llm-sessions``, ``-llm-tools``, ``-workflows``, ``-observability``, ``-guardrails`` | the services |
+| ``ghcr.io/pockerman/gogi-ingest-documents-go-worker`` | the Go ingestion worker |
+| ``ghcr.io/pockerman/gogi-python-worker`` | the Python ingestion, search and delete workers |
+| ``ghcr.io/pockerman/gogi-migrations`` | the database migrations |
+
+The migrations image brings the database of ``DATABASE_URL`` up to date; run it before the services start:
+
+```
+docker run --rm -e DATABASE_URL="postgres://gogi:...@db:5432/gogi?sslmode=require" ghcr.io/pockerman/gogi-migrations:main
+```
+
+Its arguments are those of ``migrate``, ``up`` by default, e.g. ``version`` or ``down 1``.
+
 ## Credentials for registered models
 
 A self-hosted model registered with the `llms` service (`RegisterLLM`) can reference a

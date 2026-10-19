@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/sessions"
+	"gogi/gogi/utils"
 	"regexp"
 	"strings"
 	"time"
@@ -30,7 +32,8 @@ const (
 	maxMemoryValueSize = 64 * 1024
 )
 
-var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$`)
+// up to 128 characters as the application gives it, and its application's name and "." as it is kept
+var sessionIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,168}$`)
 
 var roles = []string{sessions.RoleSystem, sessions.RoleUser, sessions.RoleAssistant, sessions.RoleTool}
 
@@ -108,7 +111,12 @@ func (s *LLMSessionServer) GetOrCreateSession(ctx context.Context, req *gogiv1.G
 		}
 	}
 
-	session, created, err := s.store.GetOrCreateSession(ctx, req.GetUserId(), req.GetSessionId())
+	// a new session's id is the application's, like those the application chooses
+	sessionID := req.GetSessionId()
+	if sessionID == "" {
+		sessionID = applications.Qualify(applications.FromContext(ctx), utils.NewUUIDString())
+	}
+	session, created, err := s.store.GetOrCreateSession(ctx, req.GetUserId(), sessionID)
 	if err != nil {
 		return nil, storeError(err, "get or create the session")
 	}

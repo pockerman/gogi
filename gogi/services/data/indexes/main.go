@@ -1,6 +1,7 @@
 package main
 
 import (
+	"gogi/gogi/applications"
 	"gogi/gogi/services/data/indexes/impl"
 	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
@@ -50,7 +51,8 @@ func main() {
 		log.Fatalf("failed to listen: %v", err)
 	}
 
-	indexServer := grpc.NewServer()
+	// indexes, and their owners and members, are the application's
+	indexServer := grpc.NewServer(applications.ScopeFromEnv(impl.ScopedFields...).ServerOptions()...)
 
 	// deleting an index deletes its documents' files
 	store, err := objects.NewStoreFromEnv()

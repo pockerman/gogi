@@ -34,6 +34,8 @@ type OpenAILLMModelProvider struct {
 	baseURL      string
 	httpClient   *http.Client
 	name         string
+	// a built-in provider calls OpenAI with the key of the application whose call it is
+	builtin bool
 }
 
 // APIKeySource returns the API key to send with a request. It is called for every
@@ -41,7 +43,9 @@ type OpenAILLMModelProvider struct {
 type APIKeySource func() (string, error)
 
 func NewOpenAILLMModelProvider(apiKey string) *OpenAILLMModelProvider {
-	return NewOpenAICompatibleLLMModelProvider("openai", apiKey, openAIBaseURL)
+	provider := NewOpenAICompatibleLLMModelProvider("openai", apiKey, openAIBaseURL)
+	provider.builtin = true
+	return provider
 }
 
 // NewOpenAICompatibleLLMModelProvider creates a provider for the OpenAI-compatible
@@ -431,7 +435,12 @@ func (provider *OpenAILLMModelProvider) prepareHeaders(request *http.Request) er
 	request.Header.Set("Content-Type", "application/json")
 
 	apiKey := provider.apiKey
-	if provider.apiKeySource != nil {
+	if key, ok, err := applicationKey(request.Context(), provider.name); ok && provider.builtin {
+		if err != nil {
+			return err
+		}
+		apiKey = key
+	} else if provider.apiKeySource != nil {
 		var err error
 		if apiKey, err = provider.apiKeySource(); err != nil {
 			return fmt.Errorf("openai: failed to get the API key: %w", err)
