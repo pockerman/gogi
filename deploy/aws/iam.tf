@@ -34,10 +34,28 @@ data "aws_iam_policy_document" "server" {
     actions = ["secretsmanager:GetSecretValue"]
     resources = [
       aws_secretsmanager_secret.database.arn,
-      aws_secretsmanager_secret.minio.arn,
       aws_secretsmanager_secret.tls.arn,
       aws_secretsmanager_secret.registry.arn,
     ]
+  }
+
+  # the files
+  statement {
+    sid       = "Buckets"
+    actions   = ["s3:ListBucket", "s3:ListBucketMultipartUploads"]
+    resources = [for bucket in aws_s3_bucket.files : bucket.arn]
+  }
+
+  statement {
+    sid = "Files"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+      "s3:AbortMultipartUpload",
+      "s3:ListMultipartUploadParts",
+    ]
+    resources = [for bucket in aws_s3_bucket.files : "${bucket.arn}/*"]
   }
 
   # the credential store: applications' provider keys, which gogi keeps under its prefix

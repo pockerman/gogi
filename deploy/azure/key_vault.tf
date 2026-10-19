@@ -34,11 +34,6 @@ resource "azurerm_key_vault" "gogi" {
   }
 }
 
-resource "random_password" "minio" {
-  length  = 32
-  special = false
-}
-
 resource "azurerm_key_vault_secret" "database" {
   name         = "deployment-database"
   key_vault_id = azurerm_key_vault.gogi.id
@@ -50,12 +45,6 @@ resource "azurerm_key_vault_secret" "database" {
     username = azurerm_postgresql_flexible_server.gogi.administrator_login
     password = random_password.database.result
   })
-}
-
-resource "azurerm_key_vault_secret" "minio" {
-  name         = "deployment-minio"
-  key_vault_id = azurerm_key_vault.gogi.id
-  value        = random_password.minio.result
 }
 
 resource "azurerm_key_vault_secret" "tls" {

@@ -3,7 +3,7 @@ package main
 import (
 	"gogi/gogi/applications"
 	"gogi/gogi/services/data/documents/impl"
-	"gogi/gogi/storage/minio"
+	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
 	"gogi/gogi/utils"
 	"net"
@@ -29,9 +29,6 @@ func main() {
 	PORT := utils.GetEnv("GOGI_DOCUMENTS_PORT", ":50054")
 	PROTOCOL := utils.GetEnv("GOGI_DOCUMENTS_PROTOCOL", "tcp")
 	TEMPORAL_HOST := utils.GetEnv("TEMPORAL_HOST", "localhost:7233")
-	MINIO_HOST := utils.GetEnv("GOGI_MINIO_HOST", "minio:9000")
-	MINIO_USER := utils.GetEnv("GOGI_MINIO_ROOT_USER", "admin")
-	MINIO_ROOT_PASSWORD := utils.GetEnv("GOGI_MINIO_ROOT_PASSWORD", "password")
 	MAX_UPLOAD_MB, err := strconv.Atoi(utils.GetEnv("GOGI_DOCUMENTS_MAX_UPLOAD_MB", "100"))
 	if err != nil {
 		log.Fatalf("GOGI_DOCUMENTS_MAX_UPLOAD_MB is not a number: %v", err)
@@ -74,8 +71,11 @@ func main() {
 
 	// Inject the temporalClient into your DocumentsServer
 	// the uploaded files are kept in the object store
-	objects := minio.NewGogiMinIOClient(MINIO_HOST, MINIO_USER, MINIO_ROOT_PASSWORD)
-	documentServer := impl.NewDocumentsServer(temporalClient, pool, objects, int64(MAX_UPLOAD_MB)*1024*1024)
+	store, err := objects.NewStoreFromEnv()
+	if err != nil {
+		log.Fatalf("failed to set up the object store: %v", err)
+	}
+	documentServer := impl.NewDocumentsServer(temporalClient, pool, store, int64(MAX_UPLOAD_MB)*1024*1024)
 
 	// the indexes documents are in are the application's
 	grpcServer := grpc.NewServer(applications.ScopeFromEnv("index_name").ServerOptions()...)

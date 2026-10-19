@@ -5,13 +5,16 @@
 # - Postgres is the cloud's (RDS, or Azure Database for PostgreSQL), not a container; Temporal keeps its state there too
 # - only Caddy is reachable from outside: it serves the gateway's gRPC over TLS on 443, with the certificate in ./certs
 # - the gateway takes only calls with an application's key, and the services scope everything to its application
-# - Chroma's, MinIO's and Caddy's data are kept in ${GOGI_DATA_DIR}, a disk of its own that outlives the server
+# - files, e.g. documents' uploads, are kept in the cloud's object storage (S3, or Azure Blob Storage), not MinIO
+# - Chroma's and Caddy's data, and the embedding models, are kept in ${GOGI_DATA_DIR}, a disk of its own that
+#   outlives the server
 #
 # Its settings come from .env, which the server's start script writes (deploy/<cloud>/start-gogi.sh):
 #   GOGI_IMAGES, GOGI_IMAGE_TAG     the images, e.g. ghcr.io/pockerman and main, or sha-<commit>
 #   GOGI_DATA_DIR                   where the data is kept, e.g. /data
 #   GOGI_DB_HOST, GOGI_DB_PORT, GOGI_DB_NAME, GOGI_DB_USER, GOGI_DB_PASSWORD
-#   GOGI_MINIO_PASSWORD
+#   GOGI_OBJECT_STORE               where files are kept, s3 or azure, and the store's settings, e.g. GOGI_S3_ENDPOINT,
+#                                   or AZURE_STORAGE_ACCOUNT_URL; and GOGI_DOCUMENTS_BUCKET, GOGI_PROMPTS_BUCKET
 #   GOGI_TLS_NAME                   the name or address the certificate is for, e.g. the server's public IP
 #   GOGI_CREDENTIAL_STORE           where applications' provider keys are kept, e.g. aws, and the store's settings,
 #                                   e.g. GOGI_CREDENTIAL_PREFIX and AWS_REGION, or AZURE_KEY_VAULT_URL and
@@ -45,10 +48,18 @@ x-vector-db: &vector-db
   GOGI_VECTOR_DB_HOST: chromadb
   GOGI_VECTOR_DB_PORT: "8000"
 
-x-minio: &minio
-  GOGI_MINIO_HOST: minio:9000
-  GOGI_MINIO_ROOT_USER: gogi
-  GOGI_MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
+x-object-store: &object-store
+  GOGI_OBJECT_STORE: ${GOGI_OBJECT_STORE}
+  GOGI_S3_ENDPOINT: ${GOGI_S3_ENDPOINT:-}
+  # only for an S3-compatible store that isn't AWS': on AWS, the server's role signs in, over TLS
+  GOGI_S3_ACCESS_KEY: ${GOGI_S3_ACCESS_KEY:-}
+  GOGI_S3_SECRET_KEY: ${GOGI_S3_SECRET_KEY:-}
+  GOGI_S3_SECURE: ${GOGI_S3_SECURE:-true}
+  GOGI_DOCUMENTS_BUCKET: ${GOGI_DOCUMENTS_BUCKET}
+  GOGI_PROMPTS_BUCKET: ${GOGI_PROMPTS_BUCKET}
+  AWS_REGION: ${AWS_REGION:-}
+  AZURE_STORAGE_ACCOUNT_URL: ${AZURE_STORAGE_ACCOUNT_URL:-}
+  AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:-}
 
 x-credential-store: &credential-store
   GOGI_CREDENTIAL_STORE: ${GOGI_CREDENTIAL_STORE:-none}
@@ -73,17 +84,13 @@ x-python-worker: &python-worker
   depends_on:
     temporal:
       condition: service_healthy
-    minio:
-      condition: service_started
     chromadb:
       condition: service_started
 
 x-python-worker-environment: &python-worker-environment
+  <<: *object-store
   TEMPORAL_HOST: temporal:7233
   HF_HOME: /cache/huggingface
-  MINIO_HOST: minio:9000
-  MINIO_ROOT_USER: gogi
-  MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
   VECTOR_STORAGE_TYPE: chromadb
   VECTOR_STORAGE_HOST: chromadb
   VECTOR_STORAGE_PORT: "8000"
@@ -154,15 +161,6 @@ services:
         soft: 65536
         hard: 65536
 
-  minio:
-    <<: *service
-    image: bitnamilegacy/minio:2025.5.24-debian-12-r5
-    environment:
-      MINIO_ROOT_USER: gogi
-      MINIO_ROOT_PASSWORD: ${GOGI_MINIO_PASSWORD}
-    volumes:
-      - ${GOGI_DATA_DIR}/minio:/bitnami/minio/data
-
   gateway:
     <<: *gogi-service
     image: ${GOGI_IMAGES}/gogi-gateway:${GOGI_IMAGE_TAG}
@@ -185,7 +183,7 @@ services:
     <<: *gogi-service
     image: ${GOGI_IMAGES}/gogi-documents:${GOGI_IMAGE_TAG}
     environment:
-      <<: [*gogi-environment, *vector-db, *minio]
+      <<: [*gogi-environment, *vector-db, *object-store]
       TEMPORAL_HOST: temporal:7233
       GOGI_INGESTION_DOCUMENT_QUEUE_NAME: ingestion-document-queue
       GOGI_DOCUMENTS_MAX_UPLOAD_MB: ${GOGI_DOCUMENTS_MAX_UPLOAD_MB:-100}
@@ -199,7 +197,7 @@ services:
     <<: *gogi-service
     image: ${GOGI_IMAGES}/gogi-indexes:${GOGI_IMAGE_TAG}
     environment:
-      <<: [*gogi-environment, *vector-db, *minio]
+      <<: [*gogi-environment, *vector-db, *object-store]
 
   llms:
     <<: *gogi-service
@@ -212,7 +210,7 @@ services:
     <<: *gogi-service
     image: ${GOGI_IMAGES}/gogi-prompts:${GOGI_IMAGE_TAG}
     environment:
-      <<: [*gogi-environment, *minio]
+      <<: [*gogi-environment, *object-store]
       GOGI_PROMPTS_PORT: ":50058"
 
   llm-sessions:

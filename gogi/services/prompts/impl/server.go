@@ -1,19 +1,19 @@
 package impl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"gogi/gogi/applications"
 	gogiv1 "gogi/gogi/gogi/v1"
-	"gogi/gogi/storage/minio"
+	"gogi/gogi/storage/objects"
 	"gogi/gogi/storage/postgres"
+	"io"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
-
-const promptsBucket = "gogi-prompts"
 
 // ScopedFields hold the names an application gives its prompts and the indexes they are for. A
 // prompt's content is kept under its qualified name, so applications' prompts of the same name and
@@ -23,24 +23,24 @@ var ScopedFields = []string{"prompt_name", "gogi_index"}
 type PromptServer struct {
 	gogiv1.UnimplementedPromptServerServer
 	gogiPromptsRepo postgres.GogiPromptsRepository
-	minioClient     *minio.GogiMinIOClient
+	// the prompts' texts, in the bucket
+	objects objects.Store
+	bucket  string
 }
 
-func NewPromptServer(dbClient *pgxpool.Pool, minioClient *minio.GogiMinIOClient) *PromptServer {
+func NewPromptServer(dbClient *pgxpool.Pool, store objects.Store) *PromptServer {
 	return &PromptServer{
 		gogiPromptsRepo: *postgres.NewGogiPromptsRepository(dbClient),
-		minioClient:     minioClient,
+		objects:         store,
+		bucket:          objects.PromptsBucket(),
 	}
 }
 
 func (s *PromptServer) RegisterPrompt(ctx context.Context, req *gogiv1.PromptRegistrationRequest) (*gogiv1.PromptRegistrationResponse, error) {
 
-	if err := s.minioClient.CreateBucket(promptsBucket); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to prepare prompt storage: %v", err)
-	}
-
 	objectPath := fmt.Sprintf("%s/%s", req.GetPromptName(), req.GetPromptVersion())
-	if err := s.minioClient.UploadBytes(promptsBucket, objectPath, req.GetContent(), "text/plain"); err != nil {
+	content := req.GetContent()
+	if _, err := s.objects.Put(ctx, s.bucket, objectPath, bytes.NewReader(content), int64(len(content)), "text/plain"); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to store prompt content: %v", err)
 	}
 
@@ -93,7 +93,7 @@ func (s *PromptServer) GetPrompt(ctx context.Context, req *gogiv1.PromptGetReque
 		return nil, err
 	}
 
-	content, err := s.minioClient.Download(promptsBucket, prompt.MinioPath)
+	content, err := s.content(ctx, prompt.MinioPath)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to load prompt content: %v", err)
 	}
@@ -130,7 +130,7 @@ func (s *PromptServer) DeletePrompt(ctx context.Context, req *gogiv1.PromptDelet
 		return nil, err
 	}
 
-	if err := s.minioClient.Delete(promptsBucket, prompt.MinioPath); err != nil {
+	if err := s.objects.Remove(ctx, s.bucket, prompt.MinioPath); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete prompt content: %v", err)
 	}
 
@@ -139,4 +139,13 @@ func (s *PromptServer) DeletePrompt(ctx context.Context, req *gogiv1.PromptDelet
 	}
 
 	return &gogiv1.PromptDeleteResponse{Deleted: true}, nil
+}
+
+func (s *PromptServer) content(ctx context.Context, key string) ([]byte, error) {
+	file, err := s.objects.Get(ctx, s.bucket, key, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	return io.ReadAll(file)
 }

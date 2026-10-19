@@ -12,8 +12,10 @@ of applications and users.
   from the addresses applications call from.
 - **The gateway** takes only calls with an application's key (`GOGI_APPLICATION_KEYS=required`), and the services
   take only calls that say which application they're for (`GOGI_REQUIRE_APPLICATION`).
-- **Temporal, Chroma and MinIO** run on the server. Chroma's and MinIO's data, and the embedding models the Python
-  workers download, are kept on a disk of their own (`/data`), which outlives the server.
+- **Temporal and Chroma** run on the server. Chroma's data, and the embedding models the Python workers download,
+  are kept on a disk of their own (`/data`), which outlives the server.
+- **Files**, documents' uploads and prompts' texts, are kept in the cloud's object storage: S3, or Azure Blob
+  Storage. MinIO is for development only.
 - **Postgres** is the cloud's. gogi's services and Temporal share it, over TLS; Temporal makes its own two
   databases, `temporal` and `temporal_visibility`.
 - **Applications' provider keys**, e.g. their Anthropic keys, are kept in the cloud's secrets manager.
@@ -31,7 +33,8 @@ gogi-js).
 | | |
 |---|---|
 | Server | one EC2 instance (`t3.xlarge`), Amazon Linux 2023, with an Elastic IP; reached with SSM Session Manager, not SSH |
-| Data | a 50 GB encrypted EBS volume, snapshotted every day for a week |
+| Data | a 30 GB encrypted EBS volume, snapshotted every day for a week |
+| Files | two private, encrypted S3 buckets, `<name>-documents-<suffix>` and `<name>-prompts-<suffix>`, keeping deleted and replaced files for 30 days; the server's role may use only these |
 | Postgres | RDS for PostgreSQL 16 (`db.t4g.small`), in private subnets, backed up for a week |
 | Secrets | Secrets Manager: the deployment's own, and applications' provider keys under `gogi/credentials/` |
 | Certificates | made by Terraform's `tls` provider |
@@ -105,7 +108,8 @@ application's server in, by adding its address to `client_cidrs` and applying ag
 | | |
 |---|---|
 | Server | one VM (`Standard_B4ms`), Ubuntu 24.04, with a static public IP; nothing reaches it but the gateway's port, and the operator runs commands with `az vm run-command` |
-| Data | a 64 GB managed disk, backed up every day for a week by Azure Backup |
+| Data | a 32 GB managed disk, backed up every day for a week by Azure Backup |
+| Files | a storage account with two private containers, `documents` and `prompts`, keeping deleted files for 30 days; it takes no shared keys, only the server's managed identity |
 | Postgres | Azure Database for PostgreSQL 16, flexible server (`B_Standard_B2s`), in a subnet of its own, backed up for a week |
 | Secrets | one Key Vault: the deployment's own, and applications' provider keys (`GOGI_CREDENTIAL_STORE=azure`) |
 | Certificates | made by Terraform's `tls` provider |
@@ -158,3 +162,28 @@ az vm run-command invoke --resource-group "$(terraform output -raw resource_grou
 
 Restarting gogi (`systemctl restart gogi`), new images and the gateway's certificate work as on AWS. Postgres is
 locked against being deleted while `deletion_protection` is set.
+
+## Where files are kept
+
+The documents, indexes and prompts services, and the Python workers, choose the object storage with
+`GOGI_OBJECT_STORE`:
+
+| Value | Store | Settings |
+|---|---|---|
+| `s3` (default) | S3, or an S3-compatible store | `GOGI_S3_ENDPOINT`, e.g. `s3.eu-west-2.amazonaws.com`; `AWS_REGION`; signed in as the server's role, or with `GOGI_S3_ACCESS_KEY` and `GOGI_S3_SECRET_KEY`; `GOGI_S3_SECURE=false` for plain HTTP |
+| `azure` | Azure Blob Storage | `AZURE_STORAGE_ACCOUNT_URL`, e.g. `https://gogi.blob.core.windows.net/`; signed in as the VM's managed identity (`AZURE_CLIENT_ID`) |
+
+The buckets are `GOGI_DOCUMENTS_BUCKET` and `GOGI_PROMPTS_BUCKET`, `gogi-documents` and `gogi-prompts` by default.
+On Azure, a bucket is a container of the storage account. A store makes a bucket that isn't there when it first
+puts a file in it, as development's MinIO needs; in the cloud, Terraform makes them.
+
+Without `GOGI_S3_ENDPOINT`, the services use development's MinIO, as `docker-compose.yml` sets it: `GOGI_MINIO_HOST`,
+`GOGI_MINIO_ROOT_USER` and `GOGI_MINIO_ROOT_PASSWORD` (`MINIO_HOST`, ... in the Python workers), over plain HTTP.
+
+The stores' tests run against MinIO and Azurite, Azure's storage emulator, where they're given:
+
+```bash
+docker run -d -p 10000:10000 mcr.microsoft.com/azure-storage/azurite:3.35.0 azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+GOGI_TEST_S3_ENDPOINT=localhost:9000 GOGI_TEST_S3_ACCESS_KEY=admin GOGI_TEST_S3_SECRET_KEY=password \
+GOGI_TEST_AZURE_BLOB_URL=http://127.0.0.1:10000/devstoreaccount1 go test ./gogi/storage/objects/
+```

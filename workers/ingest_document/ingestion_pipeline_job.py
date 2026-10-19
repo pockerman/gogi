@@ -23,7 +23,7 @@ from workers.worker_utils.chunking.chunking_strategy_base import ChunkingType
 from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
 from workers.worker_utils.storage.vector_storage_router import VectorStorageRouter
 from workers.worker_utils.storage.postgres.db import PostgresDB
-from workers.worker_utils.storage.objects.object_store import ObjectStore
+from workers.worker_utils.storage.objects.object_store import object_store_from_env
 from workers.worker_utils.embeddings.embbeddings_router import EmbeddingsRouter
 from workers.worker_utils.embeddings.embeder_base import EmbedderClientType, EmbedderModelType
 from workers.worker_utils.embeddings.sentence_transformer_embeddings import SentenceTransformerEmbeddings
@@ -68,9 +68,8 @@ db = PostgresDB(host=os.getenv("DB_HOST"), port=os.getenv("DB_PORT"),
                 database=os.getenv("DB_NAME"), user=os.getenv("DB_USER"),
                 password=os.getenv("DB_PASSWORD"))
 
-object_store = ObjectStore(host=os.getenv("MINIO_HOST", "minio:9000"),
-                           user=os.getenv("MINIO_ROOT_USER", "admin"),
-                           password=os.getenv("MINIO_ROOT_PASSWORD", "password"))
+# the uploads: MinIO in development, S3 or Blob Storage in the cloud
+object_store = object_store_from_env()
 
 pipeline = IngestionPipeline(objects=object_store, parse_router=parse_router, chunk_router=chunk_router,
                              embeddings_router=embeddings_router, vector_storage=vector_storage_router, state=db,

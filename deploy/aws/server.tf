@@ -34,7 +34,8 @@ locals {
     tls_name        = aws_eip.server.public_ip
     data_volume_id  = aws_ebs_volume.data.id
     database_secret = aws_secretsmanager_secret.database.name
-    minio_secret    = aws_secretsmanager_secret.minio.name
+    documents       = aws_s3_bucket.files["documents"].id
+    prompts         = aws_s3_bucket.files["prompts"].id
     tls_secret      = aws_secretsmanager_secret.tls.name
     registry_secret = aws_secretsmanager_secret.registry.name
   })
