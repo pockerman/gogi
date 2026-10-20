@@ -15,6 +15,9 @@ model.
 | `RegisterLLM`        | Registers a self-hosted model                                        |
 | `ListRegisteredLLMs` | Lists the registered models                                          |
 | `GetLLMStatus`       | Returns a registered model's health                                  |
+| `RegisterEmbeddingModel` | Registers a text embedding model the application hosts           |
+| `ListEmbeddingModels`    | Lists the embedding models the application can use               |
+| `Embed`                  | Embeds texts with an embedding model                             |
 
 ## Prompts
 
@@ -45,7 +48,7 @@ results as tool messages.
 ### Images
 
 A user message can carry images with its text, as `parts`: text and images in order, after the message's `content`.
-An image is its bytes, or a document of the platform's, e.g. a photo uploaded with `store_only`, which the model
+An image is its bytes, or a document of the platform's, e.g. a photo stored without embedding models, which the model
 service reads from the documents service, so a large image needn't travel in the request. Its media type, one of
 `image/jpeg`, `image/png`, `image/gif` and `image/webp`, is worked out from the image if it isn't given. The model
 service sends the images to Anthropic as image blocks and to OpenAI and OpenAI-compatible models, such as vision
@@ -74,6 +77,38 @@ can serve it.
   `healthy` or `unhealthy`.
 - **Credentials:** a model that needs an API key names a credential in the platform's credential store with
   `credential_ref`; the registration never holds the key itself. See [credentials](credentials.md).
+
+## Embedding models
+
+The model service embeds text for the documents service, which names the models that embed a document each time it
+ingests one (see [gogi overview](gogi_overview.md#data-services)). Every model is called the same way, at an
+OpenAI-compatible `/embeddings` endpoint, so gogi runs no heavy model itself:
+
+| Model                    | Dimensions | Reads at most | Where it runs                                                   |
+|--------------------------|------------|---------------|-----------------------------------------------------------------|
+| `bge-small-en-v1.5`      | 384        | 512 tokens    | gogi, in a text embeddings inference server of its own          |
+| `all-MiniLM-L6-v2`       | 384        | 256 tokens    | gogi, likewise                                                  |
+| `text-embedding-3-small` | 1536       | 8191 tokens   | OpenAI, with the application's key, the credential `openai`    |
+| an application's own     | its own    | as registered | where the application hosts it, registered by its URL           |
+
+- **The servers gogi runs** are `GOGI_EMBEDDINGS_BGE_SMALL_URL` and `GOGI_EMBEDDINGS_MINILM_URL`. OpenAI's endpoint
+  is `GOGI_EMBEDDINGS_OPENAI_URL`, or `OPENAI_BASE_URL`. Calls made without keys, as in development, use the
+  platform's `OPENAI_API_KEY`.
+- **An application's own model**, e.g. a large one it serves with vLLM, TEI, Ollama or LiteLLM, is registered with
+  `RegisterEmbeddingModel`: a name of lowercase letters, digits and dashes, the endpoint's base URL (gogi posts to
+  `<url>/embeddings`), the name the endpoint knows the model by, the credential it needs, if any, and how many
+  tokens it reads (512 if not given). gogi calls the model once to check it answers and to learn its dimensions.
+  It is the application's own: another application can't list or use it.
+- **Where a model may be:** gogi calls an application's model from inside its own network, so the URL must not lead
+  to gogi's services or to the cloud's metadata endpoint, which hands out the server's credentials. Private and
+  loopback addresses are refused unless `GOGI_EMBEDDINGS_ALLOW_PRIVATE_URLS` is true, as in development, where a
+  model can be on the developer's machine (`host.docker.internal`); link-local addresses are always refused. The
+  address is checked when the model is registered and each time it's called.
+- **Chunks fit the model:** a document is chunked separately for each model, into chunks of about three fifths as
+  many words as the model reads tokens, 400 words at most.
+- **Errors:** a model that is neither one gogi provides nor one the application registered is `NOT_FOUND`; OpenAI's
+  model without the application's key is `FAILED_PRECONDITION`, telling it to store its key as the credential
+  `openai`.
 
 ## Cost and telemetry
 

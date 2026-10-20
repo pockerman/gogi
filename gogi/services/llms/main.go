@@ -4,6 +4,7 @@ import (
 	"context"
 	"gogi/gogi/applications"
 	"gogi/gogi/credentials"
+	"gogi/gogi/embeddings"
 	"gogi/gogi/llm/pricing"
 	LLM_PROVIDERS "gogi/gogi/llm/providers"
 	"gogi/gogi/observability"
@@ -129,6 +130,11 @@ func main() {
 	}
 	modelServer := impl.NewLLMModelServer(chromaDBClient, pool, modelRouter, credentialStore)
 	modelServer.SetTelemetry(telemetry, prices)
+	// text embedding models: the ones gogi runs and OpenAI's, and those applications host and
+	// register by URL, which may be on private addresses only where the operator allows it
+	allowPrivate, _ := strconv.ParseBool(utils.GetEnv("GOGI_EMBEDDINGS_ALLOW_PRIVATE_URLS", "false"))
+	modelServer.SetEmbeddingModels(postgres.NewEmbeddingModelsRepository(pool),
+		embeddings.URLPolicy{AllowPrivate: allowPrivate}, utils.GetEnv("OPENAI_API_KEY", ""))
 	gogiv1.RegisterLLMModelServerServer(grpcServer, modelServer)
 	// each application's own keys, e.g. for the built-in providers
 	gogiv1.RegisterCredentialServerServer(grpcServer, impl.NewCredentialServer(credentialStore, pool))

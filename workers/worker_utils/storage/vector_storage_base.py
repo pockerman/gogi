@@ -55,6 +55,11 @@ class VectorStorageBase(ABC):
     def delete_by_document(self, index_name: str, document_id: str, job_id: str | None = None) -> int:
         """Delete the chunks of a document, or only those a job stored. Returns chunks deleted."""
 
+    @abstractmethod
+    def delete_other_jobs(self, index_name: str, document_id: str, job_id: str) -> int:
+        """Delete the chunks of a document that other jobs stored, e.g. once a new ingestion has stored its own.
+        Returns chunks deleted."""
+
    
 
     @abstractmethod

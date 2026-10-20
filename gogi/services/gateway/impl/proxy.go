@@ -231,6 +231,16 @@ func (p *GenericGRPCProxy) ForwardSearchDocuments(ctx context.Context, req *gogi
 	return client.SearchDocuments(ctx, req)
 }
 
+func (p *GenericGRPCProxy) ForwardIngestStoredDocument(ctx context.Context, req *gogiv1.IngestStoredDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	conn, err := p.buildConnection("documents")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewDocumentServerClient(conn).IngestStoredDocument(ctx, req)
+}
+
 func (p *GenericGRPCProxy) ForwardListDocumentSections(ctx context.Context, req *gogiv1.ListDocumentSectionsRequest) (*gogiv1.ListDocumentSectionsResponse, error) {
 	conn, err := p.buildConnection("documents")
 	if err != nil {
@@ -455,6 +465,36 @@ func (p *GenericGRPCProxy) ForwardRegisterLLM(ctx context.Context, req *gogiv1.R
 
 	client := gogiv1.NewLLMModelServerClient(conn)
 	return client.RegisterLLM(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardRegisterEmbeddingModel(ctx context.Context, req *gogiv1.RegisterEmbeddingModelRequest) (*gogiv1.EmbeddingModel, error) {
+	conn, err := p.buildConnection("llms")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewLLMModelServerClient(conn).RegisterEmbeddingModel(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardListEmbeddingModels(ctx context.Context, req *gogiv1.ListEmbeddingModelsRequest) (*gogiv1.ListEmbeddingModelsResponse, error) {
+	conn, err := p.buildConnection("llms")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewLLMModelServerClient(conn).ListEmbeddingModels(ctx, req)
+}
+
+func (p *GenericGRPCProxy) ForwardEmbed(ctx context.Context, req *gogiv1.EmbedRequest) (*gogiv1.EmbedResponse, error) {
+	conn, err := p.buildConnection("llms")
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+
+	return gogiv1.NewLLMModelServerClient(conn).Embed(ctx, req)
 }
 
 func (p *GenericGRPCProxy) ForwardListRegisteredLLMs(ctx context.Context, req *gogiv1.ListRegisteredLLMsRequest) (*gogiv1.ListRegisteredLLMsResponse, error) {

@@ -2,12 +2,10 @@
 Ingest a document pipeline worker. The pipeline has the following steps
 
 1. extract the document from the bytes
-2. Create the chunks.
-3. Generate embeddings for the chunks
-4. Store the chunks and embeddings in the vector database
+2. for each embedding model the application named: create the chunks, have the model service embed them, and store
+   them in the index's collection for the model
 """
 import os
-from openai import AuthenticationError
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 from loguru import logger
@@ -24,10 +22,7 @@ from workers.worker_utils.chunking.fixed_size_chunking import FixedSizeChunking
 from workers.worker_utils.storage.vector_storage_router import VectorStorageRouter
 from workers.worker_utils.storage.postgres.db import PostgresDB
 from workers.worker_utils.storage.objects.object_store import object_store_from_env
-from workers.worker_utils.embeddings.embbeddings_router import EmbeddingsRouter
-from workers.worker_utils.embeddings.embeder_base import EmbedderClientType, EmbedderModelType
-from workers.worker_utils.embeddings.sentence_transformer_embeddings import SentenceTransformerEmbeddings
-from workers.worker_utils.embeddings.openai_embeddings import OpenAIEmbeddings
+from workers.worker_utils.embeddings.model_service_embeddings import ModelServiceEmbeddings, EmbeddingRefused
 from workers.worker_utils.job_status import JobStatus
 
 from workers.ingest_document.ingestion_request import DocumentIngestionRequest
@@ -52,13 +47,8 @@ CHUNKING_STRATEGIES = {
 
 chunk_router = ChunkingRouter(chunking_strategies=CHUNKING_STRATEGIES)
 
-EMBEDDERS = {
-
-   (EmbedderModelType.CLIP, EmbedderClientType.SENTENCE_TRANSFORMER): SentenceTransformerEmbeddings(),
-   (EmbedderModelType.TEXT_EMBEDDING_3_SMALL, EmbedderClientType.OPENAI): OpenAIEmbeddings(),
-}
-
-embeddings_router = EmbeddingsRouter(embedders=EMBEDDERS)
+# the workers run no embedding model: the model service calls them, with the application's keys
+embeddings = ModelServiceEmbeddings(address=os.getenv("GOGI_LLM_SERVICE_ADDR", "llms:50057"))
 
 vector_storage_router = VectorStorageRouter(name=os.getenv("VECTOR_STORAGE_TYPE"),
                                             host=os.getenv("VECTOR_STORAGE_HOST"),
@@ -72,7 +62,7 @@ db = PostgresDB(host=os.getenv("DB_HOST"), port=os.getenv("DB_PORT"),
 object_store = object_store_from_env()
 
 pipeline = IngestionPipeline(objects=object_store, parse_router=parse_router, chunk_router=chunk_router,
-                             embeddings_router=embeddings_router, vector_storage=vector_storage_router, state=db,
+                             embeddings=embeddings, vector_storage=vector_storage_router, state=db,
                              heartbeat=activity.heartbeat)
 
 @activity.defn(name="ingest_document")
@@ -82,24 +72,23 @@ def ingest_document(req):
     logger.debug(f"Starting job {request.job_id}")
 
     try:
-        extracted_document, chunks = pipeline.run(request)
+        extracted_document, _ = pipeline.run(request)
 
         words = sum(len(section.content.split()) for section in extracted_document.sections)
         db.update_document_stats(index_name=request.index_name, document_id=request.document_id,
-                                 chunk_count=len(chunks), page_count=extracted_document.page_count,
-                                 word_count=words, job_id=request.job_id)
+                                 page_count=extracted_document.page_count, word_count=words, job_id=request.job_id)
     except IngestionCancelled as e:
         # the job is CANCELLED already, or its document went with its index; retrying can't help
         logger.info(f"Job {request.job_id} stopped: {e}")
         raise ApplicationError(str(e), type="IngestionCancelled", non_retryable=True) from e
-    except AuthenticationError as e:
-        # A bad/missing API key will never succeed on retry: fail the job now instead of
-        # burning through the activity's retry budget.
-        error_message = f"Embeddings provider rejected the API key: {e}"
+    except EmbeddingRefused as e:
+        # e.g. a model the application can't use any more, or a key its provider refused: asking again won't
+        # help, so the job fails now instead of burning through the activity's retry budget
+        error_message = f"The embedding model refused: {e}"
         logger.error(f"Job {request.job_id} failed (non-retryable): {error_message}")
         db.update_job_status(job_id=request.job_id, status=JobStatus.JobFailed, progress=0.0,
                              error_message=error_message)
-        raise ApplicationError(error_message, type="AuthenticationError", non_retryable=True) from e
+        raise ApplicationError(error_message, type="EmbeddingRefused", non_retryable=True) from e
     except Exception as e:
         info = activity.info()
         max_attempts = info.retry_policy.maximum_attempts if info.retry_policy else 0
@@ -137,19 +126,18 @@ def search_document(req):
     logger.debug(f"Searching index {request.index_name} for: {request.query!r}")
 
     try:
-        query_embedding = embeddings_router.embed_text(
-            text=request.query, model=request.embeddings_model, client=request.embeddings_client
-        )
+        query_embedding = embeddings.embed(request.application, request.embedding_model, [request.query])[0]
+        # only the documents the model embedded are in its collection
         results = vector_storage_router.search(
-            index_name=request.index_name,
-            query_embedding=query_embedding.embeddings,
+            index_name=request.collection,
+            query_embedding=query_embedding,
             top_k=request.top_k,
             metadata_filters=_build_where_clause(request.metadata_filter, request.document_ids),
         )
-    except AuthenticationError as e:
-        error_message = f"Embeddings provider rejected the API key: {e}"
+    except EmbeddingRefused as e:
+        error_message = f"The embedding model refused: {e}"
         logger.error(f"Search of {request.index_name} failed (non-retryable): {error_message}")
-        raise ApplicationError(error_message, type="AuthenticationError", non_retryable=True) from e
+        raise ApplicationError(error_message, type="EmbeddingRefused", non_retryable=True) from e
 
     return {
         "chunks": [
@@ -172,6 +160,7 @@ def delete_document(req):
     request = DocumentDeleteRequest(**req)
     logger.debug(f"Deleting document {request.document_id} from index {request.index_name}")
 
-    chunks_deleted = vector_storage_router.delete_by_document(index_name=request.index_name,
-                                                              document_id=request.document_id)
+    chunks_deleted = sum(vector_storage_router.delete_by_document(index_name=collection,
+                                                                  document_id=request.document_id)
+                         for collection in request.collections)
     return {"chunks_deleted": chunks_deleted}

@@ -20,3 +20,11 @@ func VersionKey(indexName string, documentID string, version string) string {
 func IndexPrefix(indexName string) string {
 	return indexName + "/"
 }
+
+// CollectionName is the vector store collection of an index's chunks for an embedding model, as
+// the application named the model: each model's vectors are kept apart, as vectors of different
+// models cannot be compared. A registered model's name has no dots, so the name is never read as
+// another index's
+func CollectionName(indexName string, model string) string {
+	return indexName + "." + model
+}

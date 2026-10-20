@@ -27,6 +27,8 @@ type Document struct {
 	PageCount  int32
 	WordCount  int32
 	CreatedAt  time.Time
+	// the models the document is embedded by, as the application named them
+	EmbeddingModels []string
 }
 
 type DocumentsRepository struct {
@@ -40,7 +42,9 @@ func NewDocumentsRepository(pool *pgxpool.Pool) *DocumentsRepository {
 const documentColumns = `
 	d.id, i.name, d.filename, d.content_type, d.metadata, COALESCE(d.job_id::text, ''),
 	COALESCE(j.status, ''), d.chunk_count, d.page_count, d.word_count, d.created_at,
-	d.size_bytes, d.object_key`
+	d.size_bytes, d.object_key,
+	COALESCE((SELECT array_agg(e.model ORDER BY e.model) FROM gogi_document_embeddings e
+		WHERE e.index_id = d.index_id AND e.document_id = d.id), '{}')`
 
 const documentFrom = `
 	FROM gogi_documents d
@@ -110,8 +114,9 @@ func (r *DocumentsRepository) Get(ctx context.Context, indexName string, documen
 	return document, err
 }
 
-// Replace gives the document new content: its file, job and metadata; its stats start again from zero.
-// It fails with ErrDocumentNotFound if there's no such document
+// Replace gives the document new content: its file, job and metadata; its stats start again from zero,
+// and no model embeds it until it's ingested again. It fails with ErrDocumentNotFound if there's no
+// such document
 func (r *DocumentsRepository) Replace(ctx context.Context, document Document) error {
 
 	metadata := document.Metadata
@@ -119,7 +124,13 @@ func (r *DocumentsRepository) Replace(ctx context.Context, document Document) er
 		metadata = map[string]string{}
 	}
 
-	tag, err := r.pool.Exec(ctx, `
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	tag, err := tx.Exec(ctx, `
 		UPDATE gogi_documents
 		SET filename = $3, content_type = $4, metadata = $5, job_id = NULLIF($6, '')::uuid, size_bytes = $7,
 			object_key = $8, chunk_count = 0, page_count = 0, word_count = 0
@@ -132,7 +143,45 @@ func (r *DocumentsRepository) Replace(ctx context.Context, document Document) er
 	if tag.RowsAffected() == 0 {
 		return utils.ErrDocumentNotFound
 	}
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM gogi_document_embeddings
+		WHERE document_id = $2 AND index_id = (SELECT id FROM gogi_indexes WHERE name = $1)
+	`, document.IndexName, document.ID); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// SetJob makes the job the document's ingestion job, e.g. when a stored document is ingested with
+// more models. It fails with ErrDocumentNotFound if there's no such document
+func (r *DocumentsRepository) SetJob(ctx context.Context, indexName string, documentID string, jobID string) error {
+
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE gogi_documents SET job_id = $3::uuid
+		WHERE id = $2 AND index_id = (SELECT id FROM gogi_indexes WHERE name = $1)
+	`, indexName, documentID, jobID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return utils.ErrDocumentNotFound
+	}
 	return nil
+}
+
+// IndexEmbeddingModels are the models any document of the index is embedded by: the index has a
+// collection for each
+func (r *DocumentsRepository) IndexEmbeddingModels(ctx context.Context, indexName string) ([]string, error) {
+
+	rows, err := r.pool.Query(ctx, `
+		SELECT DISTINCT e.model FROM gogi_document_embeddings e
+		JOIN gogi_indexes i ON i.id = e.index_id
+		WHERE i.name = $1 ORDER BY e.model
+	`, indexName)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
 }
 
 // Delete removes the document; deleting one that doesn't exist does nothing
@@ -161,6 +210,7 @@ func scanDocument(row pgx.CollectableRow) (Document, error) {
 		&document.CreatedAt,
 		&document.SizeBytes,
 		&document.ObjectKey,
+		&document.EmbeddingModels,
 	)
 	return document, err
 }

@@ -9,6 +9,7 @@ import (
 	"io"
 	"time"
 
+	"gogi/gogi/applications"
 	"gogi/gogi/documents"
 	"gogi/gogi/documents/workflows"
 	"gogi/gogi/storage/postgres"
@@ -44,18 +45,21 @@ type DocumentsServer struct {
 	documentsRepo  *postgres.DocumentsRepository
 	sectionsRepo   *postgres.DocumentSectionsRepository
 	objects        ObjectStore
+	// the embedding models applications can use
+	models EmbeddingModelCatalog
 	// uploads larger than this are refused
 	maxUploadBytes int64
 }
 
 func NewDocumentsServer(temporalClient WorkflowStarter, dbClient *pgxpool.Pool, objects ObjectStore,
-	maxUploadBytes int64) *DocumentsServer {
+	models EmbeddingModelCatalog, maxUploadBytes int64) *DocumentsServer {
 	return &DocumentsServer{
 		temporalClient: temporalClient,
 		jobsRepo:       *postgres.NewJobsRepository(dbClient),
 		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
 		sectionsRepo:   postgres.NewDocumentSectionsRepository(dbClient),
 		objects:        objects,
+		models:         models,
 		maxUploadBytes: maxUploadBytes,
 	}
 }
@@ -89,8 +93,8 @@ func (s *DocumentsServer) UploadDocument(stream grpc.ClientStreamingServer[gogiv
 	return stream.SendAndClose(response)
 }
 
-// ingest stores the document's content, registers the document (or replaces its content) and starts
-// its ingestion
+// ingest stores the document's content, registers the document (or replaces its content) and, if
+// models are named, starts its ingestion with them
 func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocumentRequest, content io.Reader,
 	size int64) (*gogiv1.IngestDocumentJobResponse, error) {
 
@@ -119,6 +123,12 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		return nil, status.Errorf(codes.NotFound, "document %s not found in index %s", documentID, indexName)
 	case err != nil && !errors.Is(err, utils.ErrDocumentNotFound):
 		return nil, status.Errorf(codes.Internal, "failed to get document %s: %v", documentID, err)
+	}
+
+	// a model the application can't use is refused before anything is stored
+	models, err := s.embeddingModels(ctx, indexName, req.GetEmbeddingModels())
+	if err != nil {
+		return nil, err
 	}
 
 	newUUID := uuid.New().String()
@@ -182,8 +192,8 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		return nil, status.Errorf(codes.Internal, "failed to register the document: %v", err)
 	}
 
-	// a file kept but not ingested, e.g. a video, is ready at once
-	if req.GetStoreOnly() {
+	// a document stored without models, e.g. a video, is ready at once; it's chunked when it's ingested
+	if len(models) == 0 {
 		if err := s.jobsRepo.UpdateStatus(ctx, job.ID, utils.JobCompleted); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to complete the job of document %s: %v", documentID, err)
 		}
@@ -199,21 +209,27 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 
 	// 3. map the request to the workflow's config
 	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
-		JobId:            job.ID,
-		IndexName:        indexName,
-		Filename:         req.GetFilename(),
-		DocumentID:       documentID,
-		Bucket:           documents.Bucket,
-		ObjectKey:        objectKey,
-		ChunkStrategy:    req.GetChunkStrategy(),
-		EmbeddingsModel:  req.GetEmbeddingsModel(),
-		EmbeddingsClient: req.GetEmbeddingsClient(),
-		BatchSize:        int(req.GetBatchSize()),
-		Metadata:         req.GetMetadata(),
+		JobId:           job.ID,
+		IndexName:       indexName,
+		Filename:        req.GetFilename(),
+		DocumentID:      documentID,
+		Application:     applications.FromContext(ctx),
+		Bucket:          documents.Bucket,
+		ObjectKey:       objectKey,
+		ChunkStrategy:   req.GetChunkStrategy(),
+		EmbeddingModels: models,
+		BatchSize:       int(req.GetBatchSize()),
+		Metadata:        req.GetMetadata(),
 	}
+	return s.startIngestion(ctx, pipelineConfig, req.GetFilename())
+}
+
+// startIngestion starts the workflow that chunks and embeds the document; the client polls its job
+func (s *DocumentsServer) startIngestion(ctx context.Context, pipelineConfig workflows.IngestDocumentWorkflowConfig,
+	filename string) (*gogiv1.IngestDocumentJobResponse, error) {
 
 	options := client.StartWorkflowOptions{
-		ID:        newUUID,
+		ID:        pipelineConfig.JobId,
 		TaskQueue: utils.GetIngestionDocumentQueueName(), // Queue where the GO workflow worker is listening
 		// Idempotency: Fail if already running, or use USE_EXISTING to attach to running one
 		WorkflowIDConflictPolicy: 1, // WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
@@ -226,9 +242,9 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 	}
 
 	return &gogiv1.IngestDocumentJobResponse{
-		IndexName:    indexName,
-		DocumentId:   documentID,
-		Filename:     req.GetFilename(),
+		IndexName:    pipelineConfig.IndexName,
+		DocumentId:   pipelineConfig.DocumentID,
+		Filename:     filename,
 		Status:       string(utils.JobPending), // Initial status
 		Progress:     0.0,
 		JobId:        we.GetID(), // Return the Workflow ID for tracking
@@ -245,8 +261,9 @@ func (s *DocumentsServer) replaceContent(ctx context.Context, existing postgres.
 			return status.Errorf(codes.Internal, "failed to cancel the ingestion of document %s: %v", document.ID, err)
 		}
 	}
-	// the cancelled ingestion stores no more chunks, and removes any it stores while stopping
-	if _, err := s.deleteChunks(ctx, document.IndexName, document.ID); err != nil {
+	// the cancelled ingestion stores no more chunks, and removes any it stores while stopping; no
+	// model embeds the new content until it's ingested
+	if _, err := s.deleteChunks(ctx, document.IndexName, document.ID, existing.EmbeddingModels); err != nil {
 		return err
 	}
 	if err := s.documentsRepo.Replace(ctx, document); err != nil {
@@ -256,6 +273,64 @@ func (s *DocumentsServer) replaceContent(ctx context.Context, existing postgres.
 		s.removeObject(existing.ObjectKey)
 	}
 	return nil
+}
+
+// IngestStoredDocument chunks a stored document and embeds it with the models named. What a model
+// embedded of the document before is replaced when the model's new chunks are stored; what other
+// models embedded is kept. An ingestion of the document still running is stopped
+func (s *DocumentsServer) IngestStoredDocument(ctx context.Context,
+	req *gogiv1.IngestStoredDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+
+	indexName, documentID := req.GetIndexName(), req.GetDocumentId()
+	if len(req.GetEmbeddingModels()) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "name at least one embedding model to ingest the document with")
+	}
+	document, err := s.getDocument(ctx, indexName, documentID)
+	if err != nil {
+		return nil, err
+	}
+	if document.ObjectKey == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "document %s has no stored file to ingest", documentID)
+	}
+	models, err := s.embeddingModels(ctx, indexName, req.GetEmbeddingModels())
+	if err != nil {
+		return nil, err
+	}
+
+	// the running ingestion stops, and removes the chunks it stored; the new one is the document's
+	if document.JobID != "" {
+		if err := s.jobsRepo.Cancel(ctx, document.JobID); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to cancel the ingestion of document %s: %v", documentID, err)
+		}
+	}
+	job := postgres.Job{
+		ID:           uuid.New().String(),
+		DocumentID:   documentID,
+		Status:       utils.JobPending,
+		JobType:      string(utils.DocumentIngestionJob),
+		ErrorMessage: "NONE",
+		CreatedAt:    time.Now(),
+	}
+	if err := s.jobsRepo.Create(ctx, job); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to create the ingestion job: %v", err)
+	}
+	if err := s.documentsRepo.SetJob(ctx, indexName, documentID, job.ID); err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to start the ingestion of document %s: %v", documentID, err)
+	}
+
+	return s.startIngestion(ctx, workflows.IngestDocumentWorkflowConfig{
+		JobId:           job.ID,
+		IndexName:       indexName,
+		Filename:        document.Filename,
+		DocumentID:      documentID,
+		Application:     applications.FromContext(ctx),
+		Bucket:          documents.Bucket,
+		ObjectKey:       document.ObjectKey,
+		ChunkStrategy:   req.GetChunkStrategy(),
+		EmbeddingModels: models,
+		BatchSize:       int(req.GetBatchSize()),
+		Metadata:        document.Metadata,
+	}, document.Filename)
 }
 
 func (s *DocumentsServer) tooLarge(filename string) error {
@@ -312,7 +387,12 @@ func (r *limitedReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
+// SearchDocuments searches the documents the model named embedded
 func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.SearchDocumentsRequest) (*gogiv1.SearchDocumentsResponse, error) {
+
+	if req.GetEmbeddingModel() == "" {
+		return nil, status.Error(codes.InvalidArgument, "name the embedding model to search with")
+	}
 
 	// an unknown index is not found; an index with nothing ingested yet has nothing to find
 	exists, err := s.documentsRepo.IndexExists(ctx, req.GetIndexName())
@@ -322,15 +402,20 @@ func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.Searc
 	if !exists {
 		return nil, status.Errorf(codes.NotFound, "index %s not found", req.GetIndexName())
 	}
+	models, err := s.embeddingModels(ctx, req.GetIndexName(), []string{req.GetEmbeddingModel()})
+	if err != nil {
+		return nil, err
+	}
 
 	config := workflows.SearchDocumentsWorkflowConfig{
-		IndexName:        req.GetIndexName(),
-		Query:            req.GetQuery(),
-		TopK:             int(req.GetTopK()),
-		EmbeddingsModel:  req.GetEmbeddingsModel(),
-		EmbeddingsClient: req.GetEmbeddingsClient(),
-		DocumentIds:      req.GetDocumentIds(),
-		MetadataFilter:   req.GetMetadataFilter(),
+		IndexName:      req.GetIndexName(),
+		Query:          req.GetQuery(),
+		TopK:           int(req.GetTopK()),
+		Application:    applications.FromContext(ctx),
+		EmbeddingModel: models[0].Model,
+		Collection:     models[0].Collection,
+		DocumentIds:    req.GetDocumentIds(),
+		MetadataFilter: req.GetMetadataFilter(),
 	}
 
 	taskQueueName := utils.GetIngestionDocumentQueueName()
@@ -429,7 +514,7 @@ func (s *DocumentsServer) DeleteDocument(ctx context.Context, req *gogiv1.Delete
 		}
 	}
 
-	chunksDeleted, err := s.deleteChunks(ctx, indexName, documentID)
+	chunksDeleted, err := s.deleteChunks(ctx, indexName, documentID, document.EmbeddingModels)
 	if err != nil {
 		return nil, err
 	}
@@ -539,13 +624,18 @@ func (s *DocumentsServer) DownloadDocument(req *gogiv1.DownloadDocumentRequest,
 	}
 }
 
-// deleteChunks deletes every chunk of the document from the vector store
-func (s *DocumentsServer) deleteChunks(ctx context.Context, indexName string, documentID string) (int, error) {
+// deleteChunks deletes every chunk of the document from the vector store: those of each model that
+// embedded it
+func (s *DocumentsServer) deleteChunks(ctx context.Context, indexName string, documentID string, models []string) (int, error) {
+	if len(models) == 0 {
+		return 0, nil
+	}
 	options := client.StartWorkflowOptions{
 		ID:        uuid.New().String(),
 		TaskQueue: utils.GetIngestionDocumentQueueName(),
 	}
-	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID}
+	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID,
+		Collections: collections(indexName, models)}
 	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.DeleteDocumentWorkflow, config)
 	if err != nil {
 		return 0, status.Errorf(codes.Internal, "failed to start the delete workflow: %v", err)
@@ -581,17 +671,18 @@ func (s *DocumentsServer) getDocument(ctx context.Context, indexName string, doc
 
 func toDocumentMetadata(document postgres.Document) *gogiv1.DocumentMetadata {
 	return &gogiv1.DocumentMetadata{
-		DocumentId:  document.ID,
-		IndexName:   document.IndexName,
-		Filename:    document.Filename,
-		ChunkCount:  document.ChunkCount,
-		PageCount:   document.PageCount,
-		WordCount:   document.WordCount,
-		Metadata:    document.Metadata,
-		ContentType: document.ContentType,
-		Status:      document.Status,
-		JobId:       document.JobID,
-		CreatedAt:   document.CreatedAt.Format(time.RFC3339),
-		SizeBytes:   document.SizeBytes,
+		DocumentId:      document.ID,
+		IndexName:       document.IndexName,
+		Filename:        document.Filename,
+		ChunkCount:      document.ChunkCount,
+		PageCount:       document.PageCount,
+		WordCount:       document.WordCount,
+		Metadata:        document.Metadata,
+		ContentType:     document.ContentType,
+		Status:          document.Status,
+		JobId:           document.JobID,
+		CreatedAt:       document.CreatedAt.Format(time.RFC3339),
+		SizeBytes:       document.SizeBytes,
+		EmbeddingModels: document.EmbeddingModels,
 	}
 }

@@ -34,9 +34,9 @@ variable "image_tag" {
 }
 
 variable "instance_type" {
-  description = "The server: its Python workers each hold an embedding model in memory"
+  description = "The server: gogi needs about 2.5 GB, its two small embedding models half a GB of it"
   type        = string
-  default     = "t3.xlarge"
+  default     = "t3.medium"
 }
 
 variable "data_volume_gb" {

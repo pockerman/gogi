@@ -16,14 +16,26 @@ type IngestDocumentWorkflowConfig struct {
 	IndexName  string `json:"index_name"`
 	Filename   string `json:"filename"`
 	DocumentID string `json:"document_id"`
+	// the application whose document it is: the models are its own, and called with its keys
+	Application string `json:"application"`
 	// the document's content is in the object store; workflow inputs are limited to a few MB
-	Bucket           string            `json:"bucket"`
-	ObjectKey        string            `json:"object_key"`
-	ChunkStrategy    string            `json:"chunk_strategy"`
-	EmbeddingsModel  string            `json:"embeddings_model"`
-	EmbeddingsClient string            `json:"embeddings_client"`
-	BatchSize        int               `json:"batch_size"`
-	Metadata         map[string]string `json:"metadata"`
+	Bucket        string `json:"bucket"`
+	ObjectKey     string `json:"object_key"`
+	ChunkStrategy string `json:"chunk_strategy"`
+	// the models that embed the document, each into a collection of its own
+	EmbeddingModels []EmbeddingModelConfig `json:"embedding_models"`
+	BatchSize       int                    `json:"batch_size"`
+	Metadata        map[string]string      `json:"metadata"`
+}
+
+// EmbeddingModelConfig is how a document is chunked for a model, and where its chunks are kept
+type EmbeddingModelConfig struct {
+	// as the application named it
+	Model      string `json:"model"`
+	Collection string `json:"collection"`
+	// in words, so a chunk is no longer than the model reads
+	ChunkSize    int `json:"chunk_size"`
+	ChunkOverlap int `json:"chunk_overlap"`
 }
 
 // IngestDocumentWorkflow is the workflow definition.

@@ -12,8 +12,10 @@ of applications and users.
   from the addresses applications call from.
 - **The gateway** takes only calls with an application's key (`GOGI_APPLICATION_KEYS=required`), and the services
   take only calls that say which application they're for (`GOGI_REQUIRE_APPLICATION`).
-- **Temporal and Chroma** run on the server. Chroma's data, and the embedding models the Python workers download,
-  are kept on a disk of their own (`/data`), which outlives the server.
+- **Temporal and Chroma** run on the server, and the two small embedding models gogi runs, each in a text embeddings
+  inference server of its own. Chroma's data, and the models the servers download, are kept on a disk of their own
+  (`/data`), which outlives the server. The Python workers run no model: the model service embeds text, calling
+  OpenAI with an application's key, or a model the application hosts, for any other model.
 - **Files**, documents' uploads and prompts' texts, are kept in the cloud's object storage: S3, or Azure Blob
   Storage. MinIO is for development only.
 - **Postgres** is the cloud's. gogi's services and Temporal share it, over TLS; Temporal makes its own two
@@ -32,15 +34,16 @@ gogi-js).
 
 | | |
 |---|---|
-| Server | one EC2 instance (`t3.xlarge`), Amazon Linux 2023, with an Elastic IP; reached with SSM Session Manager, not SSH |
+| Server | one EC2 instance (`t3.medium`), Amazon Linux 2023, with an Elastic IP; reached with SSM Session Manager, not SSH |
 | Data | a 30 GB encrypted EBS volume, snapshotted every day for a week |
 | Files | two private, encrypted S3 buckets, `<name>-documents-<suffix>` and `<name>-prompts-<suffix>`, keeping deleted and replaced files for 30 days; the server's role may use only these |
 | Postgres | RDS for PostgreSQL 16 (`db.t4g.small`), in private subnets, backed up for a week |
 | Secrets | Secrets Manager: the deployment's own, and applications' provider keys under `gogi/credentials/` |
 | Certificates | made by Terraform's `tls` provider |
 
-This costs about $180 a month in eu-west-2 at on-demand prices, $140 of it the server; a `t3.large` saves about $70
-if the Python workers' embedding models fit in its 8 GB.
+This costs about $75 a month in eu-west-2 at on-demand prices, $34 of it the server. gogi needs about 2.5 GB of its
+4 GB, the two small embedding models half a GB of it; a `t3.large` (8 GB, about $35 a month more) leaves room for
+large ingestions.
 
 ### Deploying
 
@@ -71,8 +74,8 @@ Data Lifecycle Manager.
      --secret-string '{"username":"<GitHub user>","token":"<token with read:packages>"}'
    ```
 
-The server takes a few minutes to start the first time: the Python workers download their embedding models, about
-2 GB, once.
+The server takes a minute or two longer to start the first time: the embedding servers download their models, a few
+hundred MB, once.
 
 ### Operating it
 

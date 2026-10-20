@@ -69,20 +69,35 @@ func (f *fakeObjects) get(key string) ([]byte, bool) {
 	return data, ok
 }
 
-// fakeWorkflows records the ingestion workflows started and completes the others at once
+// fakeWorkflows records the ingestion and delete workflows started and completes the others at once
 type fakeWorkflows struct {
 	mu        sync.Mutex
 	ingestion []workflows.IngestDocumentWorkflowConfig
+	deletes   []workflows.DeleteDocumentWorkflowConfig
 }
 
 func (f *fakeWorkflows) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{},
 	args ...interface{}) (client.WorkflowRun, error) {
-	if config, ok := args[0].(workflows.IngestDocumentWorkflowConfig); ok {
-		f.mu.Lock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch config := args[0].(type) {
+	case workflows.IngestDocumentWorkflowConfig:
 		f.ingestion = append(f.ingestion, config)
-		f.mu.Unlock()
+	case workflows.DeleteDocumentWorkflowConfig:
+		f.deletes = append(f.deletes, config)
 	}
 	return fakeRun{id: options.ID}, nil
+}
+
+// fakeModels are the models gogi provides; the application has no OpenAI key
+type fakeModels struct{}
+
+func (fakeModels) ListEmbeddingModels(context.Context) ([]*gogiv1.EmbeddingModel, error) {
+	return []*gogiv1.EmbeddingModel{
+		{Name: "bge-small-en-v1.5", Dimensions: 384, MaxInputTokens: 512, Available: true},
+		{Name: "all-MiniLM-L6-v2", Dimensions: 384, MaxInputTokens: 256, Available: true},
+		{Name: "text-embedding-3-small", Dimensions: 1536, MaxInputTokens: 8191, CredentialRef: "openai"},
+	}, nil
 }
 
 type fakeRun struct{ id string }
@@ -131,7 +146,7 @@ func newTestService(t *testing.T, maxUploadBytes int64) testService {
 		jobs: postgres.NewJobsRepository(pool), pool: pool}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.workflows, pool, service.objects, maxUploadBytes))
+	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.workflows, pool, service.objects, fakeModels{}, maxUploadBytes))
 	go server.Serve(listener)
 	t.Cleanup(server.Stop)
 
@@ -148,11 +163,12 @@ func newTestService(t *testing.T, maxUploadBytes int64) testService {
 
 func info(documentID string) *gogiv1.UploadDocumentRequest {
 	return &gogiv1.UploadDocumentRequest{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{
-		IndexName:   "maria--aeronautics",
-		DocumentId:  documentID,
-		Filename:    "fe-basics.txt",
-		ContentType: "text/plain",
-		Metadata:    map[string]string{"subject": "numerical-methods"},
+		IndexName:       "maria--aeronautics",
+		DocumentId:      documentID,
+		Filename:        "fe-basics.txt",
+		ContentType:     "text/plain",
+		Metadata:        map[string]string{"subject": "numerical-methods"},
+		EmbeddingModels: []string{"bge-small-en-v1.5"},
 	}}}
 }
 
@@ -194,6 +210,12 @@ func TestUploadDocumentStoresTheContentAndPassesItsKeyToTheWorkflow(t *testing.T
 	if config.Bucket != "gogi-documents" || config.ObjectKey != "maria--aeronautics/fe-basics" || config.JobId != response.GetJobId() {
 		t.Errorf("workflow config = %+v", config)
 	}
+	// the document is chunked to fit the model, into the index's collection for it
+	want := workflows.EmbeddingModelConfig{Model: "bge-small-en-v1.5", Collection: "maria--aeronautics.bge-small-en-v1.5",
+		ChunkSize: 307, ChunkOverlap: 30}
+	if len(config.EmbeddingModels) != 1 || config.EmbeddingModels[0] != want || config.Application != "default" {
+		t.Errorf("workflow models = %+v for %q, want %+v", config.EmbeddingModels, config.Application, want)
+	}
 
 	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fe-basics"})
 	if err != nil {
@@ -209,6 +231,7 @@ func TestIngestDocumentStoresTheContentToo(t *testing.T) {
 
 	_, err := service.client.IngestDocument(context.Background(), &gogiv1.IngestDocumentRequest{
 		IndexName: "maria--aeronautics", DocumentId: "fd-schemes", Filename: "fd-schemes.txt", Content: []byte("forward differences"),
+		EmbeddingModels: []string{"all-MiniLM-L6-v2"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +258,14 @@ func TestUploadDocumentRefusals(t *testing.T) {
 		{"a missing index", []*gogiv1.UploadDocumentRequest{
 			{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{IndexName: "missing", DocumentId: "doc", Filename: "x.txt"}}},
 			chunk("text")}, codes.NotFound, "index missing not found"},
+		{"a model gogi neither runs nor has registered", []*gogiv1.UploadDocumentRequest{
+			{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "doc",
+				Filename: "x.txt", EmbeddingModels: []string{"bge-small-en-v1.5", "clip"}}}},
+			chunk("text")}, codes.NotFound, `there is no embedding model "clip"`},
+		{"OpenAI's model without the application's key", []*gogiv1.UploadDocumentRequest{
+			{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "doc",
+				Filename: "x.txt", EmbeddingModels: []string{"text-embedding-3-small"}}}},
+			chunk("text")}, codes.FailedPrecondition, `store one as the credential "openai"`},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -409,10 +440,10 @@ func TestDownloadADocument(t *testing.T) {
 	}
 }
 
-func TestAStoreOnlyDocumentIsReadyAtOnceWithoutIngestion(t *testing.T) {
+func TestADocumentStoredWithoutModelsIsReadyAtOnceWithoutIngestion(t *testing.T) {
 	service := newTestService(t, 1024)
 	video := &gogiv1.UploadDocumentRequest{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{
-		IndexName: "maria--aeronautics", DocumentId: "lecture-3", Filename: "lecture-3.mp4", ContentType: "video/mp4", StoreOnly: true}}}
+		IndexName: "maria--aeronautics", DocumentId: "lecture-3", Filename: "lecture-3.mp4", ContentType: "video/mp4"}}}
 
 	response, err := upload(t, service.client, video, chunk("not really a video"))
 	if err != nil {
@@ -426,8 +457,8 @@ func TestAStoreOnlyDocumentIsReadyAtOnceWithoutIngestion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if document.GetDocument().GetStatus() != string(utils.JobCompleted) {
-		t.Errorf("document status = %s, want COMPLETED", document.GetDocument().GetStatus())
+	if document.GetDocument().GetStatus() != string(utils.JobCompleted) || len(document.GetDocument().GetEmbeddingModels()) != 0 {
+		t.Errorf("document = %+v, want COMPLETED and embedded by no model", document.GetDocument())
 	}
 	if content, _ := service.objects.get("gogi-documents/maria--aeronautics/lecture-3"); string(content) != "not really a video" {
 		t.Errorf("stored content = %q", content)
@@ -529,7 +560,7 @@ func TestSearchingAnUnknownIndexIsNotFound(t *testing.T) {
 	service := newTestService(t, 1024)
 
 	_, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
-		IndexName: "nobody--nothing", Query: "stiffness matrix", TopK: 3,
+		IndexName: "nobody--nothing", Query: "stiffness matrix", TopK: 3, EmbeddingModel: "bge-small-en-v1.5",
 	})
 
 	if status.Code(err) != codes.NotFound {
@@ -541,10 +572,149 @@ func TestSearchingAnIndexWithNothingIngestedFindsNothing(t *testing.T) {
 	service := newTestService(t, 1024)
 
 	response, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
-		IndexName: "maria--aeronautics", Query: "stiffness matrix", TopK: 3,
+		IndexName: "maria--aeronautics", Query: "stiffness matrix", TopK: 3, EmbeddingModel: "bge-small-en-v1.5",
 	})
 
 	if err != nil || len(response.GetChunks()) != 0 {
 		t.Errorf("chunks = %v, err = %v; want none", response.GetChunks(), err)
+	}
+}
+
+func TestSearchingNamesAModelTheApplicationCanUse(t *testing.T) {
+	service := newTestService(t, 1024)
+
+	tests := []struct {
+		model string
+		code  codes.Code
+	}{{"", codes.InvalidArgument}, {"clip", codes.NotFound}, {"text-embedding-3-small", codes.FailedPrecondition}}
+	for _, test := range tests {
+		_, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
+			IndexName: "maria--aeronautics", Query: "stiffness matrix", TopK: 3, EmbeddingModel: test.model,
+		})
+		if status.Code(err) != test.code {
+			t.Errorf("searching with %q: err = %v, want %s", test.model, err, test.code)
+		}
+	}
+}
+
+// embedded records that the model embedded the document, as the ingestion worker does
+func embedded(t *testing.T, service testService, documentID, model string) {
+	t.Helper()
+	_, err := service.pool.Exec(context.Background(), `INSERT INTO gogi_document_embeddings (index_id, document_id, model, chunk_count)
+		SELECT id, $1, $2, 3 FROM gogi_indexes WHERE name = 'maria--aeronautics'`, documentID, model)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAStoredDocumentIsIngestedLater(t *testing.T) {
+	service := newTestService(t, 1024)
+	stored := info("fem-notes")
+	stored.GetInfo().EmbeddingModels = nil
+	first, err := upload(t, service.client, stored, chunk("text"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = service.client.IngestStoredDocument(context.Background(), &gogiv1.IngestStoredDocumentRequest{
+		IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("ingesting without a model: err = %v, want InvalidArgument", err)
+	}
+
+	response, err := service.client.IngestStoredDocument(context.Background(), &gogiv1.IngestStoredDocumentRequest{
+		IndexName: "maria--aeronautics", DocumentId: "fem-notes", EmbeddingModels: []string{"all-MiniLM-L6-v2", "bge-small-en-v1.5"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(service.workflows.ingestion) != 1 {
+		t.Fatalf("workflows started = %d, want 1", len(service.workflows.ingestion))
+	}
+	config := service.workflows.ingestion[0]
+	if config.JobId != response.GetJobId() || config.JobId == first.GetJobId() || config.ObjectKey != "maria--aeronautics/fem-notes" ||
+		config.Metadata["subject"] != "numerical-methods" || len(config.EmbeddingModels) != 2 {
+		t.Fatalf("workflow config = %+v", config)
+	}
+	// MiniLM reads less, so its chunks are shorter
+	if config.EmbeddingModels[0].Model != "all-MiniLM-L6-v2" || config.EmbeddingModels[0].ChunkSize >= config.EmbeddingModels[1].ChunkSize {
+		t.Errorf("models = %+v", config.EmbeddingModels)
+	}
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GetDocument().GetJobId() != response.GetJobId() || document.GetDocument().GetStatus() != string(utils.JobPending) {
+		t.Errorf("document = %+v, want its new job", document.GetDocument())
+	}
+}
+
+func TestIngestingAStoredDocumentStopsItsRunningIngestion(t *testing.T) {
+	service := newTestService(t, 1024)
+	first, err := upload(t, service.client, info("fem-notes"), chunk("text"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := service.client.IngestStoredDocument(context.Background(), &gogiv1.IngestStoredDocumentRequest{
+		IndexName: "maria--aeronautics", DocumentId: "fem-notes", EmbeddingModels: []string{"all-MiniLM-L6-v2"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	job, _ := service.client.GetDocumentIngestJob(context.Background(), &gogiv1.GetIngestDocumentJobRequest{JobId: first.GetJobId()})
+	if job.GetStatus() != string(utils.JobCancelled) {
+		t.Errorf("the running ingestion is %s, want CANCELLED", job.GetStatus())
+	}
+}
+
+func TestDeletingADocumentDeletesWhatEveryModelEmbedded(t *testing.T) {
+	service := newTestService(t, 1024)
+	if _, err := upload(t, service.client, info("fem-notes"), chunk("text")); err != nil {
+		t.Fatal(err)
+	}
+	embedded(t, service, "fem-notes", "bge-small-en-v1.5")
+	embedded(t, service, "fem-notes", "all-MiniLM-L6-v2")
+
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := document.GetDocument().GetEmbeddingModels(); len(got) != 2 || got[0] != "all-MiniLM-L6-v2" || got[1] != "bge-small-en-v1.5" {
+		t.Errorf("embedding models = %v", got)
+	}
+
+	if _, err := service.client.DeleteDocument(context.Background(), &gogiv1.DeleteDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(service.workflows.deletes) != 1 {
+		t.Fatalf("delete workflows = %d, want 1", len(service.workflows.deletes))
+	}
+	got := service.workflows.deletes[0].Collections
+	if len(got) != 2 || got[0] != "maria--aeronautics.all-MiniLM-L6-v2" || got[1] != "maria--aeronautics.bge-small-en-v1.5" {
+		t.Errorf("collections deleted from = %v", got)
+	}
+}
+
+func TestReplacingADocumentsContentDeletesWhatModelsEmbedded(t *testing.T) {
+	service := newTestService(t, 1024)
+	if _, err := upload(t, service.client, info("fem-notes"), chunk("old text")); err != nil {
+		t.Fatal(err)
+	}
+	embedded(t, service, "fem-notes", "bge-small-en-v1.5")
+	replacing := info("fem-notes")
+	replacing.GetInfo().Replace = true
+	replacing.GetInfo().EmbeddingModels = nil
+
+	if _, err := upload(t, service.client, replacing, chunk("new text")); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(service.workflows.deletes) != 1 || len(service.workflows.deletes[0].Collections) != 1 {
+		t.Errorf("delete workflows = %+v, want the old content's chunks deleted", service.workflows.deletes)
+	}
+	document, _ := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if len(document.GetDocument().GetEmbeddingModels()) != 0 {
+		t.Errorf("the new content is embedded by %v before it's ingested", document.GetDocument().GetEmbeddingModels())
 	}
 }

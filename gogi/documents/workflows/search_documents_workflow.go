@@ -12,13 +12,16 @@ import (
 const SearchDocumentsWorkflowName = "SearchDocumentsWorkflow"
 
 type SearchDocumentsWorkflowConfig struct {
-	IndexName        string            `json:"index_name"`
-	Query            string            `json:"query"`
-	TopK             int               `json:"top_k"`
-	EmbeddingsModel  string            `json:"embeddings_model"`
-	EmbeddingsClient string            `json:"embeddings_client"`
-	DocumentIds      []string          `json:"document_ids"`
-	MetadataFilter   map[string]string `json:"metadata_filter"`
+	IndexName string `json:"index_name"`
+	Query     string `json:"query"`
+	TopK      int    `json:"top_k"`
+	// the application whose index it is, and the model, of its, that embeds the query
+	Application    string `json:"application"`
+	EmbeddingModel string `json:"embedding_model"`
+	// the index's collection for the model
+	Collection     string            `json:"collection"`
+	DocumentIds    []string          `json:"document_ids"`
+	MetadataFilter map[string]string `json:"metadata_filter"`
 }
 
 type DocumentChunkResult struct {

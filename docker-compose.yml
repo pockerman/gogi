@@ -135,12 +135,15 @@ services:
       - GOGI_MINIO_ROOT_USER=admin
       - GOGI_MINIO_ROOT_PASSWORD=password
       - GOGI_DOCUMENTS_MAX_UPLOAD_MB=100
+      # the embedding models a document is ingested with are the model service's to know
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - chromadb
       - minio
+      - llms
   indexes:
     build:  
       context: .
@@ -211,13 +214,39 @@ services:
       - AWS_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test
+      # the embedding models gogi runs; applications' own models may be on the developer's machine, e.g.
+      # host.docker.internal, but never at the cloud's metadata endpoint
+      - GOGI_EMBEDDINGS_BGE_SMALL_URL=http://embeddings-bge-small/v1
+      - GOGI_EMBEDDINGS_MINILM_URL=http://embeddings-minilm/v1
+      - GOGI_EMBEDDINGS_ALLOW_PRIVATE_URLS=true
+      # OpenAI's embeddings; the @fake-openai scenarios point it at the fake model server (bdd/)
+      - GOGI_EMBEDDINGS_OPENAI_URL=${GOGI_EMBEDDINGS_OPENAI_URL:-https://api.openai.com/v1}
     depends_on:
       - postgres
       - chromadb
       - vault
+      - embeddings-bge-small
+      - embeddings-minilm
     # models served on the host, e.g. by Ollama, are registered at host.docker.internal
     extra_hosts:
       - "host.docker.internal:host-gateway"
+
+  # the small text embedding models gogi runs, each in a text embeddings inference server of its own; they download
+  # their model once, into the volume; one tokenizer and small batches keep each in about half a GB
+  embeddings-bge-small:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.2
+    container_name: gogi-embeddings-bge-small
+    command: --model-id BAAI/bge-small-en-v1.5 --tokenization-workers 1 --max-batch-tokens 4096
+    volumes:
+      - embedding-models:/data
+    restart: unless-stopped
+  embeddings-minilm:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.2
+    container_name: gogi-embeddings-minilm
+    command: --model-id sentence-transformers/all-MiniLM-L6-v2 --tokenization-workers 1 --max-batch-tokens 4096
+    volumes:
+      - embedding-models:/data
+    restart: unless-stopped
   prompts:
     build:
       context: .
@@ -358,13 +387,15 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
-      - OPENAI_API_KEY=1234569878
+      # the model service embeds the chunks and queries
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - documents
       - postgres
       - chromadb
+      - llms
     restart: unless-stopped
   # the same image as the ingestion worker; each serves one activity on a queue of its own
   search-document-worker:
@@ -386,13 +417,15 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
-      - OPENAI_API_KEY=1234569878
+      # the model service embeds the chunks and queries
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - documents
       - postgres
       - chromadb
+      - llms
     restart: unless-stopped
   delete-document-worker:
     build:
@@ -413,16 +446,19 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
-      - OPENAI_API_KEY=1234569878
+      # the model service embeds the chunks and queries
+      - GOGI_LLM_SERVICE_ADDR=llms:50057
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
       - documents
       - postgres
       - chromadb
+      - llms
     restart: unless-stopped
 volumes:
   postgres-data:
   chroma-data:
+  embedding-models:
   
 
