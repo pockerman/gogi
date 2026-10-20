@@ -28,6 +28,7 @@ type IndexServer struct {
 	gogiv1.UnimplementedIndexServiceServer
 	chromaDBClient *vector_storage.ChromaDBClient
 	gogiIndexRepo  postgres.GogiIndexRepository
+	documentsRepo  *postgres.DocumentsRepository
 	objects        ObjectStore
 }
 
@@ -44,6 +45,7 @@ func NewIndexServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgx
 	return &IndexServer{
 		chromaDBClient: chromaDBClient,
 		gogiIndexRepo:  *postgres.NewGogiIndexesRepository(dbClient),
+		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
 		objects:        objects,
 	}
 }
@@ -56,9 +58,9 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 	log.Infof("Creating index %s for owner %s", indexName, owner)
 
 	// Idempotent by name: if the index metadata already exists (e.g. the client calls this
-	// every run), reuse it instead of erroring on the name's unique constraint. Always
-	// (re)ensure the vector store collection regardless, since it can go missing independently
-	// of the Postgres row (e.g. the vector store lost data on its own).
+	// every run), reuse it instead of erroring on the name's unique constraint. An index is a
+	// storage area: it has a vector store collection for each model its documents are embedded by,
+	// made when a document is first embedded by the model
 	index, err := s.gogiIndexRepo.GetIndexByName(indexName)
 	if err != nil {
 		if !errors.Is(err, utils.ErrIndexNotFound) {
@@ -70,10 +72,6 @@ func (s *IndexServer) CreateIndex(ctx context.Context, req *gogiv1.CreateIndexRe
 		if index, err = s.gogiIndexRepo.GetIndexByName(indexName); err != nil {
 			return nil, status.Errorf(codes.Internal, "failed to read the new index: %v", err)
 		}
-	}
-
-	if err := s.chromaDBClient.CreateCollection(indexName); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create vector store collection: %v", err)
 	}
 
 	return toIndexResponse(index), nil
@@ -222,13 +220,21 @@ func indexError(err error, index string) error {
 func (s *IndexServer) DeleteIndexByName(ctx context.Context, req *gogiv1.DeleteIndexByNameRequest) (*gogiv1.DeleteIndexResponse, error) {
 	log.Infof("Deleting index %s", req.GetIndexName())
 
+	// the index has a collection for each model its documents are embedded by, known by its documents
+	models, err := s.documentsRepo.IndexEmbeddingModels(ctx, req.GetIndexName())
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to find the collections of %s: %v", req.GetIndexName(), err)
+	}
 	success, err := s.gogiIndexRepo.DeleteIndexByName(req.GetIndexName())
 	if err != nil {
 		return nil, indexError(err, req.GetIndexName())
 	}
-	// the index's documents go with its row; its chunks with its collection; its files with its prefix
-	if err := s.chromaDBClient.DeleteCollection(req.GetIndexName()); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to delete the vector store collection of %s: %v", req.GetIndexName(), err)
+	// the index's documents go with its row; its chunks with its collections; its files with its prefix
+	for _, model := range models {
+		collection := documents.CollectionName(req.GetIndexName(), model)
+		if err := s.chromaDBClient.DeleteCollection(collection); err != nil {
+			return nil, status.Errorf(codes.Internal, "failed to delete the vector store collection %s: %v", collection, err)
+		}
 	}
 	if err := s.objects.RemovePrefix(ctx, documents.Bucket, documents.IndexPrefix(req.GetIndexName())); err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to delete the files of %s: %v", req.GetIndexName(), err)

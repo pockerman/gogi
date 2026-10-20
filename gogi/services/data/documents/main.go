@@ -75,7 +75,13 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to set up the object store: %v", err)
 	}
-	documentServer := impl.NewDocumentsServer(temporalClient, pool, store, int64(MAX_UPLOAD_MB)*1024*1024)
+	// the embedding models a document is ingested with are the model service's to know
+	llmsAddress := utils.GetEnv("GOGI_LLM_SERVICE_ADDR", "llms:50057")
+	models, err := impl.ModelServiceCatalog(llmsAddress)
+	if err != nil {
+		log.Fatalf("failed to connect to the model service at %s: %v", llmsAddress, err)
+	}
+	documentServer := impl.NewDocumentsServer(temporalClient, pool, store, models, int64(MAX_UPLOAD_MB)*1024*1024)
 
 	// the indexes documents are in are the application's
 	grpcServer := grpc.NewServer(applications.ScopeFromEnv("index_name").ServerOptions()...)

@@ -5,6 +5,7 @@ import "errors"
 var ErrJobNotFound = errors.New("job not found")
 
 var ErrRegisteredLLMNotFound = errors.New("registered LLM not found")
+var ErrEmbeddingModelNotFound = errors.New("embedding model not found")
 
 var ErrToolNotFound = errors.New("tool not found")
 

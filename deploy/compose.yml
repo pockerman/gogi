@@ -78,19 +78,25 @@ x-gogi-service: &gogi-service
 x-python-worker: &python-worker
   <<: *service
   image: ${GOGI_IMAGES}/gogi-python-worker:${GOGI_IMAGE_TAG}
-  # the embedding models, downloaded once, e.g. CLIP's 1.7 GB, for the three workers and kept when they're replaced
-  volumes:
-    - ${GOGI_DATA_DIR}/huggingface:/cache/huggingface
   depends_on:
     temporal:
       condition: service_healthy
     chromadb:
       condition: service_started
+    llms:
+      condition: service_started
+
+# the small text embedding models gogi runs, each in a text embeddings inference server of its own; they download
+# their model once, into the data disk, and keep it when they're replaced; one tokenizer and small batches keep each in about half a GB
+x-embedding-model: &embedding-model
+  <<: *service
+  image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8.2
+  volumes:
+    - ${GOGI_DATA_DIR}/huggingface:/data
 
 x-python-worker-environment: &python-worker-environment
   <<: *object-store
   TEMPORAL_HOST: temporal:7233
-  HF_HOME: /cache/huggingface
   VECTOR_STORAGE_TYPE: chromadb
   VECTOR_STORAGE_HOST: chromadb
   VECTOR_STORAGE_PORT: "8000"
@@ -99,8 +105,8 @@ x-python-worker-environment: &python-worker-environment
   DB_NAME: ${GOGI_DB_NAME:-gogi}
   DB_USER: ${GOGI_DB_USER}
   DB_PASSWORD: ${GOGI_DB_PASSWORD}
-  # only for material embedded with OpenAI's models; the default embeddings run in the worker
-  OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+  # the workers run no embedding model: the model service embeds chunks and queries, with the application's keys
+  GOGI_LLM_SERVICE_ADDR: llms:50057
 
 services:
 
@@ -205,6 +211,26 @@ services:
     environment:
       <<: [*gogi-environment, *vector-db, *credential-store]
       GOGI_LLMS_PORT: ":50057"
+      GOGI_EMBEDDINGS_BGE_SMALL_URL: http://embeddings-bge-small/v1
+      GOGI_EMBEDDINGS_MINILM_URL: http://embeddings-minilm/v1
+      # applications' own models must be on the internet, never on the server's network or the cloud's metadata
+      # endpoint
+      GOGI_EMBEDDINGS_ALLOW_PRIVATE_URLS: "false"
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      embeddings-bge-small:
+        condition: service_started
+      embeddings-minilm:
+        condition: service_started
+
+  embeddings-bge-small:
+    <<: *embedding-model
+    command: --model-id BAAI/bge-small-en-v1.5 --tokenization-workers 1 --max-batch-tokens 4096
+
+  embeddings-minilm:
+    <<: *embedding-model
+    command: --model-id sentence-transformers/all-MiniLM-L6-v2 --tokenization-workers 1 --max-batch-tokens 4096
 
   prompts:
     <<: *gogi-service

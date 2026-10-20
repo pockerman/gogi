@@ -155,17 +155,25 @@ The indexes and documents services hold the knowledge an application retrieves f
   ingested with, and reports its ingestion job's status. Documents can be listed by their metadata, e.g. every
   document of a topic. Each chunk carries its document's metadata, so searches can filter on it too. Deleting a
   document cancels its ingestion if it is still running, then deletes its chunks from the vector store and its file
-  from the object store; deleting an index deletes its documents, their files and its collection.
+  from the object store; deleting an index deletes its documents, their files and its collections.
 - **Reading:** a document's ingestion also divides it into sections: a Markdown file's headings, a PDF's outline
   (or its pages, if it has none), or the whole of a plain text file. The documents service lists a document's
   sections and returns a section's text, with its subsections' if asked (`ListDocumentSections`,
   `GetDocumentSection`). Every chunk records its section, and the uploaded file can be downloaded
   (`DownloadDocument`), whole or a range of its bytes, e.g. for a video player seeking.
-- **Stored files:** a file can be kept without being ingested (`store_only`), e.g. a video: it is registered and
-  ready at once, and has no chunks or sections.
+- **Storing and ingesting:** an index is a user's storage area. Storing a document keeps it, and nothing more: it
+  is registered and ready at once, with no chunks or sections, e.g. a video. A document is chunked only when the
+  application ingests it and names the embedding models that embed it (`embedding_models`): one or more, with no
+  default, when it is uploaded, or later (`IngestStoredDocument`). Each model's chunks are cut to fit what it reads
+  and kept in a collection of the index's for that model, as vectors of different models can't be compared; a
+  search names the model it searches with, and finds the documents that model embedded. Ingesting a document with
+  a model again replaces what the model embedded of it; what other models embedded is kept. See the
+  [model service](model_service.md#embedding-models) for the models.
 - **Replacing content:** a document's content can be replaced, e.g. after it was edited (`replace`): any ingestion of
-  the old content is stopped, its chunks are deleted, and the new content is ingested under the same document id.
-- **Search:** the documents service searches an index for the chunks relevant to a query.
+  the old content is stopped, its chunks are deleted, for every model, and the new content is stored under the same
+  document id, and ingested with the models named.
+- **Search:** the documents service searches an index for the chunks relevant to a query, with the embedding model
+  named.
 
 ### Tool service
 

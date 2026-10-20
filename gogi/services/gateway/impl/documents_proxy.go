@@ -33,6 +33,11 @@ func (p *DocumentsProxy) IngestDocument(ctx context.Context,
 	return p.proxy.ForwardIngestDocument(ctx, req)
 }
 
+func (p *DocumentsProxy) IngestStoredDocument(ctx context.Context,
+	req *gogiv1.IngestStoredDocumentRequest) (*gogiv1.IngestDocumentJobResponse, error) {
+	return p.proxy.ForwardIngestStoredDocument(ctx, req)
+}
+
 func (p *DocumentsProxy) UploadDocument(stream grpc.ClientStreamingServer[gogiv1.UploadDocumentRequest,
 	gogiv1.IngestDocumentJobResponse]) error {
 	return p.proxy.ForwardUploadDocument(stream)

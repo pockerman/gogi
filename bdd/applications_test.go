@@ -9,6 +9,11 @@
 // docker-compose), GOGI_BDD_POSTGRES_DSN its database, where the steps register applications as
 // the operator does with gogi-admin, and GOGI_BDD_HOST_FROM_GOGI the name gogi's containers reach
 // this machine by, for the fake model server.
+//
+// The scenarios tagged @fake-openai need gogi's model service to call a fake OpenAI, the fake model
+// server on a port of its own: start gogi with
+// GOGI_EMBEDDINGS_OPENAI_URL=http://host.docker.internal:18089/v1 and run them with
+// GOGI_BDD_FAKE_MODEL_PORT=18089. Without that port they are skipped.
 package bdd
 
 import (
@@ -58,18 +63,22 @@ func TestFeatures(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	model, err := startFakeModel()
+	model, err := startFakeModel(env("GOGI_BDD_FAKE_MODEL_PORT", "0"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer model.Close()
+	tags := "~@fake-openai"
+	if os.Getenv("GOGI_BDD_FAKE_MODEL_PORT") != "" {
+		tags = ""
+	}
 
 	suite := godog.TestSuite{
 		ScenarioInitializer: func(sc *godog.ScenarioContext) {
 			w := &world{pool: pool, repo: applications.NewRepository(pool), conn: conn, model: model}
 			w.steps(sc)
 		},
-		Options: &godog.Options{Format: "pretty", Paths: []string{"../features"}, TestingT: t, Strict: true},
+		Options: &godog.Options{Format: "pretty", Paths: []string{"../features"}, TestingT: t, Strict: true, Tags: tags},
 	}
 	if suite.Run() != 0 {
 		t.Fatal("the features failed")
@@ -98,6 +107,10 @@ type world struct {
 	indexes  map[string][]string
 	sessions map[string]string
 	prompts  map[string]string
+	// the documents' contents, to find them by
+	documents map[string]string
+	// when an ingestion's job was started, to wait for it
+	job string
 }
 
 func (w *world) steps(sc *godog.ScenarioContext) {
@@ -107,6 +120,7 @@ func (w *world) steps(sc *godog.ScenarioContext) {
 		w.suffix = hex.EncodeToString(suffix)
 		w.applications = map[string]*application{}
 		w.indexes, w.sessions, w.prompts = map[string][]string{}, map[string]string{}, map[string]string{}
+		w.documents = map[string]string{}
 		return ctx, nil
 	})
 	sc.After(func(ctx context.Context, _ *godog.Scenario, err error) (context.Context, error) {
@@ -151,6 +165,8 @@ func (w *world) steps(sc *godog.ScenarioContext) {
 	sc.Step(`^"([^"]*)" lists its credentials$`, w.listsCredentials)
 	sc.Step(`^it sees "([^"]*)" without its value$`, w.seesCredential)
 	sc.Step(`^"([^"]*)" sees no credentials$`, w.seesNoCredentials)
+
+	w.embeddingModelSteps(sc)
 }
 
 // applications and their keys
@@ -336,7 +352,7 @@ func (w *world) hasIndexWithDocument(name, index, filename string) error {
 	}
 	parts := []*gogiv1.UploadDocumentRequest{
 		{Part: &gogiv1.UploadDocumentRequest_Info{Info: &gogiv1.IngestDocumentRequest{
-			IndexName: index, Filename: filename, ContentType: "text/plain", StoreOnly: true}}},
+			IndexName: index, Filename: filename, ContentType: "text/plain"}}},
 		{Part: &gogiv1.UploadDocumentRequest_Chunk{Chunk: []byte("Shape functions interpolate within an element.")}},
 	}
 	for _, part := range parts {
@@ -377,7 +393,7 @@ func (w *world) searches(name, index, query string) error {
 		return err
 	}
 	w.response, w.err = gogiv1.NewDocumentServerClient(w.conn).SearchDocuments(ctx,
-		&gogiv1.SearchDocumentsRequest{IndexName: index, Query: query, TopK: 3})
+		&gogiv1.SearchDocumentsRequest{IndexName: index, Query: query, TopK: 3, EmbeddingModel: "bge-small-en-v1.5"})
 	return nil
 }
 
@@ -566,9 +582,17 @@ func (w *world) modelIsCalledWith(credential, name string) error {
 	if call.authorization != "Bearer "+secretOf(name) {
 		return fmt.Errorf("the model was called with %q", call.authorization)
 	}
+	run, ok := w.response.(*gogiv1.LLMRunResponse)
+	if !ok {
+		// an embedding model, called by the name its server knows it by
+		if call.model != "nomic-embed-text" && call.model != "text-embedding-3-small" {
+			return fmt.Errorf("the embedding model was called as %q", call.model)
+		}
+		return nil
+	}
 	// by the name it was registered with, and the application gets that name back
-	if call.model != "echo" || w.response.(*gogiv1.LLMRunResponse).GetModel() != "echo" {
-		return fmt.Errorf("the model was called as %q and answered as %q", call.model, w.response.(*gogiv1.LLMRunResponse).GetModel())
+	if call.model != "echo" || run.GetModel() != "echo" {
+		return fmt.Errorf("the model was called as %q and answered as %q", call.model, run.GetModel())
 	}
 	return nil
 }
@@ -661,6 +685,7 @@ func (w *world) cleanUp() error {
 		}
 		for _, statement := range []string{
 			`DELETE FROM gogi_registered_llms WHERE name LIKE $1 || '.%'`,
+			`DELETE FROM gogi_embedding_models WHERE name LIKE $1 || '.%'`,
 		} {
 			if _, err := w.pool.Exec(ctx, statement, app.name); err != nil {
 				return err
@@ -686,8 +711,11 @@ type modelCall struct {
 	model         string
 }
 
-func startFakeModel() (*fakeModel, error) {
-	listener, err := net.Listen("tcp", "0.0.0.0:0")
+// fakeEmbeddingDimensions is the length of the fake model's vectors
+const fakeEmbeddingDimensions = 64
+
+func startFakeModel(port string) (*fakeModel, error) {
+	listener, err := net.Listen("tcp", "0.0.0.0:"+port)
 	if err != nil {
 		return nil, err
 	}
@@ -704,7 +732,8 @@ func (f *fakeModel) url() string {
 
 func (f *fakeModel) serve(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Model string `json:"model"`
+		Model string   `json:"model"`
+		Input []string `json:"input"`
 	}
 	var body bytes.Buffer
 	body.ReadFrom(r.Body)
@@ -714,6 +743,19 @@ func (f *fakeModel) serve(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 
 	w.Header().Set("Content-Type", "application/json")
+	if strings.HasSuffix(r.URL.Path, "/embeddings") {
+		// a vector for each text, the same for the same text
+		data := make([]map[string]any, len(request.Input))
+		for i, text := range request.Input {
+			vector := make([]float32, fakeEmbeddingDimensions)
+			for j, letter := range text {
+				vector[(j+int(letter))%fakeEmbeddingDimensions]++
+			}
+			data[i] = map[string]any{"index": i, "embedding": vector}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"data": data, "model": request.Model})
+		return
+	}
 	fmt.Fprintf(w, `{"id":"1","object":"chat.completion","model":%q,"choices":[{"index":0,"message":{"role":"assistant","content":"echo"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`, request.Model)
 }
 

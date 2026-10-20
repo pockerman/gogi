@@ -60,3 +60,7 @@ class VectorStorageRouter(VectorStorageBase):
     def delete_by_document(self, index_name: str, document_id: str, job_id: str | None = None) -> int:
         """Delete the chunks of a document, or only those a job stored. Returns chunks deleted."""
         return self._impl.delete_by_document(index_name=index_name, document_id=document_id, job_id=job_id)
+
+    @override
+    def delete_other_jobs(self, index_name: str, document_id: str, job_id: str) -> int:
+        return self._impl.delete_other_jobs(index_name=index_name, document_id=document_id, job_id=job_id)

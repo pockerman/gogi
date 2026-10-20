@@ -17,3 +17,19 @@ CREATE TABLE gogi_registered_llms (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- the text embedding models applications host and register by URL, kept under their qualified
+-- names, e.g. "qubit-notes.nomic". The models gogi runs, and OpenAI's, are not kept here
+CREATE TABLE gogi_embedding_models (
+    name TEXT PRIMARY KEY,
+    -- the base URL of its OpenAI-compatible embeddings endpoint
+    url TEXT NOT NULL,
+    -- what the endpoint knows it by
+    served_name TEXT NOT NULL,
+    -- the name of the credential in the credential store, never the secret itself
+    credential_ref TEXT NOT NULL DEFAULT '',
+    dimensions INTEGER NOT NULL,
+    max_input_tokens INTEGER NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

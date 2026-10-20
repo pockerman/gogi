@@ -46,18 +46,39 @@ class PostgresDB:
                 (status, error_message or "", job_id),
             )
 
-    def update_document_stats(self, index_name: str, document_id: str, chunk_count: int, page_count: int,
-                              word_count: int, job_id: str):
-        """the document's stats, unless its content was replaced since the job started"""
+    def update_document_stats(self, index_name: str, document_id: str, page_count: int, word_count: int,
+                              job_id: str):
+        """the document's stats, unless its content was replaced since the job started; its chunks are those of
+        every model that embeds it"""
         with self._connection() as connection, connection.cursor() as cur:
             cur.execute(
                 """
-                UPDATE gogi_documents
-                SET chunk_count = %s, page_count = %s, word_count = %s
-                WHERE id = %s AND index_id = (SELECT id FROM gogi_indexes WHERE name = %s) AND job_id = %s::uuid
+                UPDATE gogi_documents d
+                SET page_count = %s, word_count = %s,
+                    chunk_count = (SELECT COALESCE(SUM(e.chunk_count), 0) FROM gogi_document_embeddings e
+                                   WHERE e.index_id = d.index_id AND e.document_id = d.id)
+                WHERE d.id = %s AND d.index_id = (SELECT id FROM gogi_indexes WHERE name = %s) AND d.job_id = %s::uuid
                 """,
-                (chunk_count, page_count, word_count, document_id, index_name, job_id),
+                (page_count, word_count, document_id, index_name, job_id),
             )
+
+    def record_embedding(self, job_id: str, index_name: str, document_id: str, model: str, chunk_count: int) -> bool:
+        """record that the model embeds the document, replacing what it embedded before, if the job is still the
+        document's and isn't cancelled. Returns whether it was recorded"""
+        with self._connection() as connection, connection.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO gogi_document_embeddings (index_id, document_id, model, job_id, chunk_count)
+                SELECT d.index_id, d.id, %s, %s::uuid, %s
+                FROM gogi_documents d JOIN gogi_indexes i ON i.id = d.index_id
+                JOIN jobs j ON j.id = d.job_id
+                WHERE i.name = %s AND d.id = %s AND d.job_id = %s::uuid AND j.status <> 'CANCELLED'
+                ON CONFLICT (index_id, document_id, model) DO UPDATE
+                SET job_id = EXCLUDED.job_id, chunk_count = EXCLUDED.chunk_count, embedded_at = NOW()
+                """,
+                (model, job_id, chunk_count, index_name, document_id, job_id),
+            )
+            return cur.rowcount == 1
 
     def replace_sections(self, job_id: str, index_name: str, document_id: str, sections) -> bool:
         """store the document's sections, replacing any stored before, if the job is still the document's: its

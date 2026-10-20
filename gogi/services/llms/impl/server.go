@@ -134,6 +134,8 @@ type LLMModelServer struct {
 	// telemetry records a generation per call; nil if telemetry is off
 	telemetry *observability.Client
 	prices    *pricing.Table
+	// embeds text; nil if not configured
+	embeddings *embeddingModels
 }
 
 func NewLLMModelServer(chromaDBClient *vector_storage.ChromaDBClient, dbClient *pgxpool.Pool,

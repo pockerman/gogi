@@ -14,3 +14,18 @@ CREATE TABLE gogi_document_sections (
     PRIMARY KEY (index_id, document_id, position),
     FOREIGN KEY (index_id, document_id) REFERENCES gogi_documents (index_id, id) ON DELETE CASCADE
 );
+
+-- the models each document is embedded by. A model's chunks of the document are in a collection of
+-- the index's for that model; ingesting the document with the model again replaces them
+CREATE TABLE gogi_document_embeddings (
+    index_id UUID NOT NULL,
+    document_id TEXT NOT NULL,
+    -- as the application named it, e.g. "bge-small-en-v1.5"
+    model TEXT NOT NULL,
+    -- the job that embedded them
+    job_id UUID,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    embedded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (index_id, document_id, model),
+    FOREIGN KEY (index_id, document_id) REFERENCES gogi_documents (index_id, id) ON DELETE CASCADE
+);

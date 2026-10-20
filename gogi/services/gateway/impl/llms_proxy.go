@@ -41,6 +41,18 @@ func (p *LLMServiceProxy) ListRegisteredLLMs(ctx context.Context, req *gogiv1.Li
 	return p.proxy.ForwardListRegisteredLLMs(ctx, req)
 }
 
+func (p *LLMServiceProxy) RegisterEmbeddingModel(ctx context.Context, req *gogiv1.RegisterEmbeddingModelRequest) (*gogiv1.EmbeddingModel, error) {
+	return p.proxy.ForwardRegisterEmbeddingModel(ctx, req)
+}
+
+func (p *LLMServiceProxy) ListEmbeddingModels(ctx context.Context, req *gogiv1.ListEmbeddingModelsRequest) (*gogiv1.ListEmbeddingModelsResponse, error) {
+	return p.proxy.ForwardListEmbeddingModels(ctx, req)
+}
+
+func (p *LLMServiceProxy) Embed(ctx context.Context, req *gogiv1.EmbedRequest) (*gogiv1.EmbedResponse, error) {
+	return p.proxy.ForwardEmbed(ctx, req)
+}
+
 func (p *LLMServiceProxy) GetLLMStatus(ctx context.Context, req *gogiv1.GetLLMStatusRequest) (*gogiv1.LLMStatusResponse, error) {
 	return p.proxy.ForwardGetLLMStatus(ctx, req)
 }

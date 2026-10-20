@@ -33,6 +33,18 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         where = {"document_id": document_id}
         if job_id:
             where = {"$and": [{"document_id": document_id}, {"job_id": job_id}]}
+        return self._delete_where(collection, where)
+
+    @override
+    def delete_other_jobs(self, index_name: str, document_id: str, job_id: str) -> int:
+        try:
+            collection = self._chroma_client.get_collection(index_name)
+        except NotFoundError:
+            return 0
+        return self._delete_where(collection, {"$and": [{"document_id": document_id}, {"job_id": {"$ne": job_id}}]})
+
+    @staticmethod
+    def _delete_where(collection, where) -> int:
         ids = collection.get(where=where, include=[])["ids"]
         if ids:
             collection.delete(ids=ids)
@@ -59,7 +71,8 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         metadata: Dict[str, str],
     ) -> int:
         
-        collection = self._chroma_client.get_collection(index_name)
+        # an index has a collection for each model that embeds its documents, made when the model first does
+        collection = self._chroma_client.get_or_create_collection(index_name)
 
         # for each chunk we will create one id
         documents = []
