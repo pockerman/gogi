@@ -36,3 +36,6 @@ gogi/gogi/
 # reference material that must never be committed
 docs/designing_ai_systems_repo-main/
 docs/designing_ai_systems_repo-main.zip
+
+# the ingestion Function app, built by workers/azure_function/build.sh
+dist/

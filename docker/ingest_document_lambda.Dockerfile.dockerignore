@@ -1,0 +1,6 @@
+# the worker needs its code, and the protos to generate its client of the model service from; the repository's
+# .dockerignore leaves the protos out
+*
+!workers
+!third_party/protos/gogi/gogi
+**/__pycache__

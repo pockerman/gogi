@@ -1,5 +1,5 @@
-# Postgres for gogi's services, and for Temporal, which makes its own two databases on it. It takes only TLS
-# connections, as RDS' Postgres 16 does by default
+# Postgres for gogi's services, and the ingestion Lambda. It takes only TLS connections, as RDS' Postgres 16 does by
+# default
 resource "random_password" "database" {
   length  = 32
   special = false

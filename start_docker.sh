@@ -14,10 +14,6 @@
 #
 # Requires: docker (with the compose plugin), migrate (golang-migrate).
 # The protobuf step additionally requires go and protoc on PATH.
-#
-# Not started by this script: gogi uses Temporal to manage workflows, and
-# Temporal runs outside Docker (see README). Start it yourself first:
-#   temporal server start-dev --ip 0.0.0.0 --port 7233
 
 set -euo pipefail
 
@@ -25,8 +21,6 @@ set -euo pipefail
 export PATH="$PATH:$(go env GOPATH)/bin"
 
 POSTGRES_DSN="postgres://gogi:gogi@localhost:5432/gogi?sslmode=disable"
-TEMPORAL_HOST=127.0.0.1
-TEMPORAL_PORT=7233
 
 SKIP_SUBMODULES=false
 SKIP_PROTOBUF=false
@@ -79,17 +73,7 @@ else
   ./build_protobuf.sh
 fi
 
-echo "==> 3. Checking for a local Temporal dev server"
-if (exec 3<>"/dev/tcp/${TEMPORAL_HOST}/${TEMPORAL_PORT}") 2>/dev/null; then
-  exec 3<&- 3>&-
-  echo "    found on ${TEMPORAL_HOST}:${TEMPORAL_PORT}"
-else
-  echo "    warning: no Temporal server reachable on ${TEMPORAL_HOST}:${TEMPORAL_PORT}."
-  echo "    Document ingestion workflows need it. Start it in another terminal with:"
-  echo "      temporal server start-dev --ip 0.0.0.0 --port ${TEMPORAL_PORT}"
-fi
-
-echo "==> 4. Bringing up the platform with Docker Compose"
+echo "==> 3. Bringing up the platform with Docker Compose"
 COMPOSE_UP_ARGS=(up)
 [[ "$SKIP_BUILD" == false ]] && COMPOSE_UP_ARGS+=(--build)
 [[ "$FOREGROUND" == false ]] && COMPOSE_UP_ARGS+=(-d)
@@ -100,7 +84,7 @@ if [[ "$FOREGROUND" == true ]]; then
   exit 0
 fi
 
-echo "==> 5. Waiting for Postgres to become ready"
+echo "==> 4. Waiting for Postgres to become ready"
 for _ in $(seq 1 60); do
   if docker compose exec -T postgres pg_isready -U gogi >/dev/null 2>&1; then
     break
@@ -109,14 +93,14 @@ for _ in $(seq 1 60); do
 done
 docker compose exec -T postgres pg_isready -U gogi
 
-echo "==> 6. Running database migrations"
+echo "==> 5. Running database migrations"
 if [[ "$SKIP_MIGRATE" == true ]]; then
   echo "    skipped (--skip-migrate)"
 else
   migrate -path migrations -database "$POSTGRES_DSN" up
 fi
 
-echo "==> 7. Checking the deployment"
+echo "==> 6. Checking the deployment"
 docker compose ps
 
 echo "==> gogi platform is up. Gateway: http://localhost:8080 (gRPC :50051)."

@@ -11,13 +11,13 @@ import (
 
 	"gogi/gogi/applications"
 	"gogi/gogi/documents"
-	"gogi/gogi/documents/workflows"
+	"gogi/gogi/documents/ingestion"
 	"gogi/gogi/storage/postgres"
+	"gogi/gogi/storage/vector_storage/models"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	log "github.com/sirupsen/logrus"
-	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -32,29 +32,36 @@ type ObjectStore interface {
 	Get(ctx context.Context, bucket, object string, offset, length int64) (io.ReadCloser, error)
 }
 
-// WorkflowStarter starts Temporal workflows; client.Client is one
-type WorkflowStarter interface {
-	ExecuteWorkflow(ctx context.Context, options client.StartWorkflowOptions, workflow interface{},
-		args ...interface{}) (client.WorkflowRun, error)
+// VectorStore keeps the chunks of the documents, in a collection of their index for each model that
+// embeds them; vector_storage.ChromaDBClient is one
+type VectorStore interface {
+	// Query is the topK chunks nearest the embedding, of those whose metadata matches where
+	Query(ctx context.Context, collection string, embedding []float32, topK int,
+		where map[string]any) ([]models.VectorSearchResult, error)
+	// DeleteWhere deletes the chunks whose metadata matches where, and returns how many it deleted
+	DeleteWhere(ctx context.Context, collection string, where map[string]any) (int, error)
 }
 
 type DocumentsServer struct {
 	gogiv1.UnimplementedDocumentServerServer
-	temporalClient WorkflowStarter
-	jobsRepo       postgres.JobsRepository
-	documentsRepo  *postgres.DocumentsRepository
-	sectionsRepo   *postgres.DocumentSectionsRepository
-	objects        ObjectStore
+	// the worker ingests the documents it's handed through the queue
+	queue         ingestion.Queue
+	vectors       VectorStore
+	jobsRepo      postgres.JobsRepository
+	documentsRepo *postgres.DocumentsRepository
+	sectionsRepo  *postgres.DocumentSectionsRepository
+	objects       ObjectStore
 	// the embedding models applications can use
 	models EmbeddingModelCatalog
 	// uploads larger than this are refused
 	maxUploadBytes int64
 }
 
-func NewDocumentsServer(temporalClient WorkflowStarter, dbClient *pgxpool.Pool, objects ObjectStore,
+func NewDocumentsServer(queue ingestion.Queue, vectors VectorStore, dbClient *pgxpool.Pool, objects ObjectStore,
 	models EmbeddingModelCatalog, maxUploadBytes int64) *DocumentsServer {
 	return &DocumentsServer{
-		temporalClient: temporalClient,
+		queue:          queue,
+		vectors:        vectors,
 		jobsRepo:       *postgres.NewJobsRepository(dbClient),
 		documentsRepo:  postgres.NewDocumentsRepository(dbClient),
 		sectionsRepo:   postgres.NewDocumentSectionsRepository(dbClient),
@@ -133,7 +140,7 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 
 	newUUID := uuid.New().String()
 
-	// 1. store the content, so the workflow carries a reference to it rather than the content. New content
+	// 1. store the content, so the worker is handed a reference to it rather than the content. New content
 	// goes to a key of its own, so the old content stays until the document no longer refers to it
 	objectKey := documents.ObjectKey(indexName, documentID)
 	if replace {
@@ -207,9 +214,9 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		}, nil
 	}
 
-	// 3. map the request to the workflow's config
-	pipelineConfig := workflows.IngestDocumentWorkflowConfig{
-		JobId:           job.ID,
+	// 3. hand the document to the worker
+	message := ingestion.Message{
+		JobID:           job.ID,
 		IndexName:       indexName,
 		Filename:        req.GetFilename(),
 		DocumentID:      documentID,
@@ -221,34 +228,26 @@ func (s *DocumentsServer) ingest(ctx context.Context, req *gogiv1.IngestDocument
 		BatchSize:       int(req.GetBatchSize()),
 		Metadata:        req.GetMetadata(),
 	}
-	return s.startIngestion(ctx, pipelineConfig, req.GetFilename())
+	return s.startIngestion(ctx, message)
 }
 
-// startIngestion starts the workflow that chunks and embeds the document; the client polls its job
-func (s *DocumentsServer) startIngestion(ctx context.Context, pipelineConfig workflows.IngestDocumentWorkflowConfig,
-	filename string) (*gogiv1.IngestDocumentJobResponse, error) {
-
-	options := client.StartWorkflowOptions{
-		ID:        pipelineConfig.JobId,
-		TaskQueue: utils.GetIngestionDocumentQueueName(), // Queue where the GO workflow worker is listening
-		// Idempotency: Fail if already running, or use USE_EXISTING to attach to running one
-		WorkflowIDConflictPolicy: 1, // WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING
-	}
-
-	// 4. start the workflow asynchronously (fire and forget); the client polls the job
-	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.IngestDocumentWorkflow, pipelineConfig)
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to start workflow: %v", err)
+// startIngestion hands the document to the worker, which chunks and embeds it; the client polls its job
+func (s *DocumentsServer) startIngestion(ctx context.Context, message ingestion.Message) (*gogiv1.IngestDocumentJobResponse, error) {
+	if err := s.queue.Enqueue(ctx, message); err != nil {
+		// the job won't run: it fails, rather than staying pending
+		if failErr := s.jobsRepo.Fail(ctx, message.JobID, "the ingestion could not be queued"); failErr != nil {
+			log.Warnf("failed to fail job %s: %v", message.JobID, failErr)
+		}
+		return nil, status.Errorf(codes.Unavailable, "failed to queue the ingestion of document %s: %v", message.DocumentID, err)
 	}
 
 	return &gogiv1.IngestDocumentJobResponse{
-		IndexName:    pipelineConfig.IndexName,
-		DocumentId:   pipelineConfig.DocumentID,
-		Filename:     filename,
-		Status:       string(utils.JobPending), // Initial status
-		Progress:     0.0,
-		JobId:        we.GetID(), // Return the Workflow ID for tracking
-		ErrorMessage: "",
+		IndexName:  message.IndexName,
+		DocumentId: message.DocumentID,
+		Filename:   message.Filename,
+		Status:     string(utils.JobPending),
+		Progress:   0.0,
+		JobId:      message.JobID,
 	}, nil
 }
 
@@ -318,8 +317,8 @@ func (s *DocumentsServer) IngestStoredDocument(ctx context.Context,
 		return nil, status.Errorf(codes.Internal, "failed to start the ingestion of document %s: %v", documentID, err)
 	}
 
-	return s.startIngestion(ctx, workflows.IngestDocumentWorkflowConfig{
-		JobId:           job.ID,
+	return s.startIngestion(ctx, ingestion.Message{
+		JobID:           job.ID,
 		IndexName:       indexName,
 		Filename:        document.Filename,
 		DocumentID:      documentID,
@@ -330,7 +329,7 @@ func (s *DocumentsServer) IngestStoredDocument(ctx context.Context,
 		EmbeddingModels: models,
 		BatchSize:       int(req.GetBatchSize()),
 		Metadata:        document.Metadata,
-	}, document.Filename)
+	})
 }
 
 func (s *DocumentsServer) tooLarge(filename string) error {
@@ -407,48 +406,58 @@ func (s *DocumentsServer) SearchDocuments(ctx context.Context, req *gogiv1.Searc
 		return nil, err
 	}
 
-	config := workflows.SearchDocumentsWorkflowConfig{
-		IndexName:      req.GetIndexName(),
-		Query:          req.GetQuery(),
-		TopK:           int(req.GetTopK()),
-		Application:    applications.FromContext(ctx),
-		EmbeddingModel: models[0].Model,
-		Collection:     models[0].Collection,
-		DocumentIds:    req.GetDocumentIds(),
-		MetadataFilter: req.GetMetadataFilter(),
-	}
-
-	taskQueueName := utils.GetIngestionDocumentQueueName()
-	options := client.StartWorkflowOptions{
-		ID:        uuid.New().String(),
-		TaskQueue: taskQueueName,
-	}
-
-	// Unlike IngestDocument, a search has to answer the caller directly, so we block on
-	// the workflow's result instead of returning a job id for the client to poll.
-	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.SearchDocumentsWorkflow, config)
+	// only the documents the model embedded are in its collection
+	vectors, err := s.models.Embed(ctx, models[0].Model, []string{req.GetQuery()})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to start search workflow: %v", err)
+		return nil, status.Errorf(status.Code(err), "failed to embed the query: %v", status.Convert(err).Message())
+	}
+	if len(vectors) != 1 {
+		return nil, status.Errorf(codes.Internal, "the model %s gave %d vectors for the query", models[0].Model, len(vectors))
+	}
+	topK := int(req.GetTopK())
+	if topK <= 0 {
+		topK = 5
+	}
+	results, err := s.vectors.Query(ctx, models[0].Collection, vectors[0], topK,
+		searchFilter(req.GetMetadataFilter(), req.GetDocumentIds()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to search index %s: %v", req.GetIndexName(), err)
 	}
 
-	var result workflows.SearchDocumentsWorkflowResult
-	if err := we.Get(ctx, &result); err != nil {
-		return nil, status.Errorf(codes.Internal, "search failed: %v", err)
-	}
-
-	chunks := make([]*gogiv1.DocumentChunk, 0, len(result.Chunks))
-	for _, c := range result.Chunks {
+	chunks := make([]*gogiv1.DocumentChunk, 0, len(results))
+	for _, result := range results {
 		chunks = append(chunks, &gogiv1.DocumentChunk{
-			ChunkId:    c.ChunkID,
-			DocumentId: c.DocumentID,
-			IndexName:  c.IndexName,
-			Content:    c.Content,
-			Score:      c.Score,
-			Metadata:   c.Metadata,
+			ChunkId:    result.ChunkID,
+			DocumentId: result.DocumentID,
+			IndexName:  req.GetIndexName(),
+			Content:    result.Text,
+			// the distance between the chunk and the query: the smaller, the more alike
+			Score:    result.Score,
+			Metadata: result.Metadata,
 		})
 	}
 
 	return &gogiv1.SearchDocumentsResponse{Chunks: chunks}, nil
+}
+
+// searchFilter matches the chunks whose metadata has every key and value of the filter, of the
+// documents named if any are; nil matches every chunk
+func searchFilter(metadataFilter map[string]string, documentIDs []string) map[string]any {
+	conditions := make([]map[string]any, 0, len(metadataFilter)+1)
+	for key, value := range metadataFilter {
+		conditions = append(conditions, map[string]any{key: value})
+	}
+	if len(documentIDs) > 0 {
+		conditions = append(conditions, map[string]any{"document_id": map[string]any{"$in": documentIDs}})
+	}
+	switch len(conditions) {
+	case 0:
+		return nil
+	case 1:
+		return conditions[0]
+	default:
+		return map[string]any{"$and": conditions}
+	}
 }
 
 func (s *DocumentsServer) GetDocumentIngestJob(ctx context.Context, req *gogiv1.GetIngestDocumentJobRequest) (*gogiv1.IngestDocumentJobResponse, error) {
@@ -630,22 +639,15 @@ func (s *DocumentsServer) deleteChunks(ctx context.Context, indexName string, do
 	if len(models) == 0 {
 		return 0, nil
 	}
-	options := client.StartWorkflowOptions{
-		ID:        uuid.New().String(),
-		TaskQueue: utils.GetIngestionDocumentQueueName(),
+	deleted := 0
+	for _, collection := range collections(indexName, models) {
+		n, err := s.vectors.DeleteWhere(ctx, collection, map[string]any{"document_id": documentID})
+		if err != nil {
+			return deleted, status.Errorf(codes.Internal, "failed to delete the chunks of document %s: %v", documentID, err)
+		}
+		deleted += n
 	}
-	config := workflows.DeleteDocumentWorkflowConfig{IndexName: indexName, DocumentID: documentID,
-		Collections: collections(indexName, models)}
-	we, err := s.temporalClient.ExecuteWorkflow(ctx, options, workflows.DeleteDocumentWorkflow, config)
-	if err != nil {
-		return 0, status.Errorf(codes.Internal, "failed to start the delete workflow: %v", err)
-	}
-
-	var result workflows.DeleteDocumentWorkflowResult
-	if err := we.Get(ctx, &result); err != nil {
-		return 0, status.Errorf(codes.Internal, "failed to delete the chunks of document %s: %v", documentID, err)
-	}
-	return result.ChunksDeleted, nil
+	return deleted, nil
 }
 
 func toDocumentSection(section postgres.DocumentSection) *gogiv1.DocumentSection {

@@ -29,7 +29,7 @@ class ModelServiceEmbeddings:
 
     @property
     def stub(self):
-        # made when first used, so the activities that embed nothing need no connection
+        # made when first used, so setting up the worker needs no connection
         if self._stub is None:
             from gogi.v1 import llm_model_service_pb2_grpc
             self._stub = llm_model_service_pb2_grpc.LLMModelServerStub(grpc.insecure_channel(self._address))

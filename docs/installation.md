@@ -25,21 +25,11 @@ Once the submodule(s) have been updated, you will need to build the protobuffers
 Use the script ```build_protobuf.sh```. 
 
 
-## Temporal installation
-
-``gogi`` uses <a href="https://temporal.io/">Temporal</a> to manage workflows and various other jobs.
-Follow the instructions in the  <a href="https://docs.temporal.io/develop/go/set-up-your-local-go">Install Temporal CLI and start the development server</a> to launch the temporal server locally. Note that currently Temporal runs outside docker, so you need to use the following:
-
-```
-temporal server start-dev --ip 0.0.0.0 --port 7233 
-```
-
-
 ## Docker installation
 
 This is the fastest way to get the full ``gogi`` platform running locally. It uses
 Docker Compose to start every service (gateway, data, LLM, tools, sessions, prompts,
-workflows, ingest workers) plus their backing infrastructure (PostgreSQL, ChromaDB,
+workflows, the ingestion worker) plus their backing infrastructure (PostgreSQL, ChromaDB,
 MinIO).
 
 #### Prerequisites
@@ -49,8 +39,6 @@ MinIO).
   bindings before the images are built — see [Go install](#go-install))
 - ``migrate`` (golang-migrate), used to apply the database migrations — see
   [Database migration](#database-migration)
-- Temporal running locally, since it is **not** started by Docker Compose — see
-  [Temporal installation](#temporal-installation)
 
 #### 1. Run the install script
 
@@ -65,11 +53,10 @@ This script automates the whole local setup:
 1. Updates the ``third_party/protos/gogi`` submodule.
 2. Installs the ``protoc-gen-go`` / ``protoc-gen-go-grpc`` plugins and regenerates
    the ``.pb.go`` bindings via ``build_protobuf.sh``.
-3. Warns if no Temporal dev server is reachable on ``127.0.0.1:7233``.
-4. Runs ``docker compose up --build -d`` to build the images and start the platform.
-5. Waits for PostgreSQL to become ready.
-6. Applies the database migrations with ``migrate``.
-7. Prints the status of every container.
+3. Runs ``docker compose up --build -d`` to build the images and start the platform.
+4. Waits for PostgreSQL to become ready.
+5. Applies the database migrations with ``migrate``.
+6. Prints the status of every container.
 
 Useful flags (combine as needed):
 
@@ -270,8 +257,8 @@ Every push to ``main`` publishes ``gogi``'s images to the GitHub Container Regis
 |-------|--------------|
 | ``ghcr.io/pockerman/gogi-gateway`` | the gateway, with ``gogi-admin`` |
 | ``ghcr.io/pockerman/gogi-documents``, ``-indexes``, ``-llms``, ``-prompts``, ``-llm-sessions``, ``-llm-tools``, ``-workflows``, ``-observability``, ``-guardrails`` | the services |
-| ``ghcr.io/pockerman/gogi-ingest-documents-go-worker`` | the Go ingestion worker |
-| ``ghcr.io/pockerman/gogi-python-worker`` | the Python ingestion, search and delete workers |
+| ``ghcr.io/pockerman/gogi-python-worker`` | the ingestion worker, polling Postgres |
+| ``ghcr.io/pockerman/gogi-ingest-lambda`` | the ingestion worker as an AWS Lambda |
 | ``ghcr.io/pockerman/gogi-migrations`` | the database migrations |
 
 The migrations image brings the database of ``DATABASE_URL`` up to date; run it before the services start:

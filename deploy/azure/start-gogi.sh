@@ -70,6 +70,14 @@ GOGI_CREDENTIAL_STORE=azure
 GOGI_CREDENTIAL_PREFIX=${name}/credentials/
 AZURE_KEY_VAULT_URL=$vault_url
 AZURE_CLIENT_ID=$client_id
+GOGI_PRIVATE_IP=${private_ip}
+%{ if ingestion_queue_url != "" ~}
+GOGI_INGESTION_QUEUE=azure
+GOGI_AZURE_QUEUE_URL=${ingestion_queue_url}
+%{ else ~}
+GOGI_INGESTION_QUEUE=postgres
+COMPOSE_PROFILES=ingestion-worker
+%{ endif ~}
 EOF
 
 mkdir -p certs

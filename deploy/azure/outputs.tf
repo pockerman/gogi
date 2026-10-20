@@ -27,3 +27,11 @@ output "key_vault_name" {
   description = "The vault of the deployment's secrets and applications' provider keys"
   value       = azurerm_key_vault.gogi.name
 }
+
+output "ingestion" {
+  description = "Where documents are ingested: the Function app to publish the ingestion code to, or the server"
+  value = var.ingestion_function ? {
+    function_app = azurerm_function_app_flex_consumption.ingestion[0].name
+    queue        = "${azurerm_storage_account.files.primary_queue_endpoint}${local.ingestion_queue}"
+  } : { worker = "on the server, polling Postgres" }
+}

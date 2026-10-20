@@ -19,7 +19,7 @@ This keeps the hard, shared problems in one place, solved once:
  application ──► SDK ──gRPC──► gateway ──┬──► model service ──────► model providers
                                          ├──► prompt service
                                          ├──► session service
-                                         ├──► data services ───────► vector store, ingestion workers
+                                         ├──► data services ───────► vector store, ingestion worker
                                          ├──► tool service ────────► tools, MCP servers
                                          ├──► guardrails service
                                          ├──► workflow service
@@ -144,13 +144,15 @@ The indexes and documents services hold the knowledge an application retrieves f
   may read and search them. An index always keeps at least one owner. The platform records the members; the
   application checks a caller's role before it acts on their behalf.
 - **Ingestion:** documents are ingested asynchronously. The documents service keeps the uploaded file in the object
-  store, and an ingestion job, run by workers on Temporal, reads it from there, splits it into chunks, embeds them,
-  and stores them in the vector store, while the application follows the job's progress. A small document can be
+  store and queues an ingestion job; the ingestion worker reads the document from there, splits it into chunks,
+  has the model service embed them, and stores them in the vector store, while the application follows the job's
+  progress. The worker runs as a function the cloud's queue triggers (an AWS Lambda fed by SQS, an Azure Function fed
+  by a Storage queue), or as a process polling a queue table in Postgres (`GOGI_INGESTION_QUEUE`; see
+  [deployment](deployment.md#ingesting-documents)). A small document can be
   sent in one request (`IngestDocument`); a larger one, up to the upload limit (`GOGI_DOCUMENTS_MAX_UPLOAD_MB`,
   100 MB by default), is streamed in parts (`UploadDocument`), because a gRPC message is limited to 4 MB.
-  Ingestions, searches and deletes each run on a worker and a queue of their own (`GOGI_INGESTION_DOCUMENT_QUEUE_NAME`,
-  `GOGI_SEARCH_DOCUMENTS_QUEUE_NAME`, `GOGI_DELETE_DOCUMENTS_QUEUE_NAME`), so a long ingestion doesn't hold up the
-  others.
+  Searches and deletes need no worker: the documents service embeds a query with the model service and asks the
+  vector store itself, so they never wait behind an ingestion.
 - **Documents:** the documents service registers a document when its ingestion starts, with the metadata it was
   ingested with, and reports its ingestion job's status. Documents can be listed by their metadata, e.g. every
   document of a topic. Each chunk carries its document's metadata, so searches can filter on it too. Deleting a
@@ -228,7 +230,7 @@ also tracks long-running jobs: their progress, checkpoints, and completion or fa
 | PostgreSQL               | The state of the services; migrations in `migrations/`         |
 | ChromaDB                 | The vector store of the data services                          |
 | MinIO                    | The content of prompts; the documents' uploaded files          |
-| Temporal                 | Durable workflows, e.g. document ingestion                     |
+| SQS, Azure Storage queues | The ingestion queue in the cloud; a Postgres table elsewhere  |
 | HashiCorp Vault or AWS Secrets Manager | The credential store; LocalStack stands in for AWS locally |
 
 See [installation](installation.md) for running the platform with Docker Compose or on Kubernetes.

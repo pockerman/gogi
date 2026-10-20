@@ -1,5 +1,4 @@
-# Azure Database for PostgreSQL, for gogi's services, and for Temporal, which makes its own two databases on it. It's
-# in the network only, and takes only TLS connections, as Azure's does by default
+# Azure Database for PostgreSQL, for gogi's services and the ingestion Function. It's in the network only, and takes only TLS connections, as Azure's does by default
 resource "random_password" "database" {
   length  = 32
   special = false

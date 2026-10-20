@@ -74,23 +74,21 @@ class ChromaDBHttpWrapper(VectorStorageBase):
         # an index has a collection for each model that embeds its documents, made when the model first does
         collection = self._chroma_client.get_or_create_collection(index_name)
 
-        # for each chunk we will create one id
+        # a job's chunks have the same ids each time it runs, so a message delivered again replaces what an earlier,
+        # failed delivery stored instead of adding to it
+        job_id = (metadata or {}).get("job_id")
         documents = []
         ids = []
         metadatas = []
         for i, chunk in enumerate(chunks):
-            ids.append(uuid.uuid4().hex)
+            ids.append(f"{document_id}:{job_id}:{i}" if job_id else uuid.uuid4().hex)
             documents.append(chunk.text)
             # every chunk carries its document's metadata, so searches can filter on it
             metadatas.append({**(metadata or {}), **chunk.metadata, 'document_id': document_id})
 
 
-        # You must provide either documents, embeddings, or both. 
-        # metadatas are always optional. When only providing documents, 
-        # Chroma will generate embeddings for you using the collection’s embedding function.
-        # Metadata values can be strings, integers, floats, or booleans. 
-        # Additionally, you can store arrays of these types.
-        collection.add(ids=ids,
+        # Metadata values can be strings, integers, floats, or booleans, or arrays of these
+        collection.upsert(ids=ids,
                        embeddings=embeddings, 
                        metadatas=metadatas, 
                        documents=documents)

@@ -1,7 +1,7 @@
 """
 Reads the documents' uploaded files from the object store: MinIO in development, S3 on AWS, Blob Storage on Azure.
-The documents service stores each upload there and the ingestion workflow carries only the object's key, because
-Temporal limits workflow inputs to a few MB.
+The documents service stores each upload there and the ingestion message carries only the object's key, because
+queue messages are limited to a few hundred KB.
 """
 import os
 from typing import Protocol

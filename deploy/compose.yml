@@ -2,7 +2,9 @@
 #
 # Unlike ../docker-compose.yml, which builds everything for development, this runs the published images
 # (ghcr.io/<owner>/gogi-<image>), and:
-# - Postgres is the cloud's (RDS, or Azure Database for PostgreSQL), not a container; Temporal keeps its state there too
+# - Postgres is the cloud's (RDS, or Azure Database for PostgreSQL), not a container
+# - documents are ingested by a function the cloud's queue triggers (a Lambda fed by SQS, an Azure Function fed by a
+#   Storage queue), or, until one is set up, by the ingestion worker here, polling a queue table in Postgres
 # - only Caddy is reachable from outside: it serves the gateway's gRPC over TLS on 443, with the certificate in ./certs
 # - the gateway takes only calls with an application's key, and the services scope everything to its application
 # - files, e.g. documents' uploads, are kept in the cloud's object storage (S3, or Azure Blob Storage), not MinIO
@@ -19,6 +21,10 @@
 #   GOGI_CREDENTIAL_STORE           where applications' provider keys are kept, e.g. aws, and the store's settings,
 #                                   e.g. GOGI_CREDENTIAL_PREFIX and AWS_REGION, or AZURE_KEY_VAULT_URL and
 #                                   AZURE_CLIENT_ID
+#   GOGI_INGESTION_QUEUE            where ingestions wait: postgres, with COMPOSE_PROFILES=ingestion-worker so the worker
+#                                   here runs; or sqs (GOGI_SQS_QUEUE_URL) or azure (GOGI_AZURE_QUEUE_URL) for a function
+#   GOGI_PRIVATE_IP                 the server's address in its network: Chroma and the model service are published
+#                                   on it for the ingestion function, which the cloud's firewall lets in alone
 #
 # The operator registers applications with gogi-admin, in the gateway's container:
 #   docker compose exec gateway /root/gogi-admin register qubit-notes
@@ -75,17 +81,6 @@ x-gogi-service: &gogi-service
     migrations:
       condition: service_completed_successfully
 
-x-python-worker: &python-worker
-  <<: *service
-  image: ${GOGI_IMAGES}/gogi-python-worker:${GOGI_IMAGE_TAG}
-  depends_on:
-    temporal:
-      condition: service_healthy
-    chromadb:
-      condition: service_started
-    llms:
-      condition: service_started
-
 # the small text embedding models gogi runs, each in a text embeddings inference server of its own; they download
 # their model once, into the data disk, and keep it when they're replaced; one tokenizer and small batches keep each in about half a GB
 x-embedding-model: &embedding-model
@@ -94,9 +89,8 @@ x-embedding-model: &embedding-model
   volumes:
     - ${GOGI_DATA_DIR}/huggingface:/data
 
-x-python-worker-environment: &python-worker-environment
+x-ingestion-worker-environment: &ingestion-worker-environment
   <<: *object-store
-  TEMPORAL_HOST: temporal:7233
   VECTOR_STORAGE_TYPE: chromadb
   VECTOR_STORAGE_HOST: chromadb
   VECTOR_STORAGE_PORT: "8000"
@@ -105,7 +99,7 @@ x-python-worker-environment: &python-worker-environment
   DB_NAME: ${GOGI_DB_NAME:-gogi}
   DB_USER: ${GOGI_DB_USER}
   DB_PASSWORD: ${GOGI_DB_PASSWORD}
-  # the workers run no embedding model: the model service embeds chunks and queries, with the application's keys
+  # the worker runs no embedding model: the model service embeds the chunks, with the application's keys
   GOGI_LLM_SERVICE_ADDR: llms:50057
 
 services:
@@ -129,36 +123,12 @@ services:
     environment:
       DATABASE_URL: postgres://${GOGI_DB_USER}:${GOGI_DB_PASSWORD}@${GOGI_DB_HOST}:${GOGI_DB_PORT:-5432}/${GOGI_DB_NAME:-gogi}?sslmode=${GOGI_DB_SSLMODE:-require}
 
-  temporal:
-    <<: *service
-    image: temporalio/auto-setup:1.29.1
-    environment:
-      DB: postgres12
-      DB_PORT: ${GOGI_DB_PORT:-5432}
-      POSTGRES_SEEDS: ${GOGI_DB_HOST}
-      POSTGRES_USER: ${GOGI_DB_USER}
-      POSTGRES_PWD: ${GOGI_DB_PASSWORD}
-      DBNAME: temporal
-      VISIBILITY_DBNAME: temporal_visibility
-      # encrypted, as the cloud's Postgres requires; its certificate isn't checked, as it's inside the network
-      POSTGRES_TLS_ENABLED: ${GOGI_DB_TLS:-true}
-      POSTGRES_TLS_DISABLE_HOST_VERIFICATION: "true"
-      SQL_TLS_ENABLED: ${GOGI_DB_TLS:-true}
-      SQL_HOST_VERIFICATION: "false"
-      # a small database takes a hundred or so connections, which gogi's services share with Temporal
-      SQL_MAX_CONNS: "10"
-      SQL_MAX_IDLE_CONNS: "5"
-      SQL_VIS_MAX_CONNS: "5"
-    healthcheck:
-      test: ["CMD-SHELL", "temporal operator cluster health --address $$(hostname -i):7233 | grep -q SERVING"]
-      interval: 10s
-      timeout: 5s
-      retries: 30
-      start_period: 30s
-
   chromadb:
     <<: *service
     image: chromadb/chroma:1.4.0
+    # for the ingestion function only; GOGI_PRIVATE_IP is the server's address in its network
+    ports:
+      - "${GOGI_PRIVATE_IP:-127.0.0.1}:8000:8000"
     volumes:
       - ${GOGI_DATA_DIR}/chroma:/data
     # every collection holds files open: the default limit of 1024 runs out after a few hundred
@@ -190,14 +160,12 @@ services:
     image: ${GOGI_IMAGES}/gogi-documents:${GOGI_IMAGE_TAG}
     environment:
       <<: [*gogi-environment, *vector-db, *object-store]
-      TEMPORAL_HOST: temporal:7233
-      GOGI_INGESTION_DOCUMENT_QUEUE_NAME: ingestion-document-queue
       GOGI_DOCUMENTS_MAX_UPLOAD_MB: ${GOGI_DOCUMENTS_MAX_UPLOAD_MB:-100}
-    depends_on:
-      migrations:
-        condition: service_completed_successfully
-      temporal:
-        condition: service_healthy
+      GOGI_LLM_SERVICE_ADDR: llms:50057
+      # the queue ingestions are handed to the worker through, as the server's role or managed identity
+      GOGI_INGESTION_QUEUE: ${GOGI_INGESTION_QUEUE:-postgres}
+      GOGI_SQS_QUEUE_URL: ${GOGI_SQS_QUEUE_URL:-}
+      GOGI_AZURE_QUEUE_URL: ${GOGI_AZURE_QUEUE_URL:-}
 
   indexes:
     <<: *gogi-service
@@ -211,11 +179,15 @@ services:
     environment:
       <<: [*gogi-environment, *vector-db, *credential-store]
       GOGI_LLMS_PORT: ":50057"
+      # applications' keys stay here: the ingestion function asks the model service to embed
       GOGI_EMBEDDINGS_BGE_SMALL_URL: http://embeddings-bge-small/v1
       GOGI_EMBEDDINGS_MINILM_URL: http://embeddings-minilm/v1
       # applications' own models must be on the internet, never on the server's network or the cloud's metadata
       # endpoint
       GOGI_EMBEDDINGS_ALLOW_PRIVATE_URLS: "false"
+    # for the ingestion function only, as Chroma is
+    ports:
+      - "${GOGI_PRIVATE_IP:-127.0.0.1}:50057:50057"
     depends_on:
       migrations:
         condition: service_completed_successfully
@@ -275,39 +247,18 @@ services:
       <<: *gogi-environment
       GOGI_GUARDRAILS_PORT: ":50061"
 
-  # orchestrates ingestions, searches and deletes; the Python workers below run their activities
-  ingest-documents-go-worker:
+  # ingests the documents queued in Postgres, until the ingestion runs as a function: started only with the profile
+  # ingestion-worker
+  ingest-documents-worker:
     <<: *service
-    image: ${GOGI_IMAGES}/gogi-ingest-documents-go-worker:${GOGI_IMAGE_TAG}
+    image: ${GOGI_IMAGES}/gogi-python-worker:${GOGI_IMAGE_TAG}
+    profiles: [ingestion-worker]
     environment:
-      GOGI_LOG_LEVEL: ${GOGI_LOG_LEVEL:-info}
-      TEMPORAL_HOST: temporal:7233
-      WORK_QUEUE: ingestion-document-queue
-      GOGI_SEARCH_DOCUMENTS_QUEUE_NAME: search-documents-queue
-      GOGI_DELETE_DOCUMENTS_QUEUE_NAME: delete-documents-queue
+      <<: *ingestion-worker-environment
     depends_on:
-      temporal:
-        condition: service_healthy
-
-  # one image, three workers: each serves one activity on a queue of its own, so long ingestions don't hold up
-  # searches and deletes
-  ingest-documents-python-worker:
-    <<: *python-worker
-    environment:
-      <<: *python-worker-environment
-      TASK_QUEUE: ingestion-document-queue
-      ACTIVITIES: ingest_document
-
-  search-document-worker:
-    <<: *python-worker
-    environment:
-      <<: *python-worker-environment
-      TASK_QUEUE: search-documents-queue
-      ACTIVITIES: search_document
-
-  delete-document-worker:
-    <<: *python-worker
-    environment:
-      <<: *python-worker-environment
-      TASK_QUEUE: delete-documents-queue
-      ACTIVITIES: delete_document
+      migrations:
+        condition: service_completed_successfully
+      chromadb:
+        condition: service_started
+      llms:
+        condition: service_started

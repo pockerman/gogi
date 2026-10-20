@@ -11,14 +11,14 @@ import (
 	"sync"
 	"testing"
 
-	"gogi/gogi/documents/workflows"
+	"gogi/gogi/documents/ingestion"
 	gogiv1 "gogi/gogi/gogi/v1"
 	"gogi/gogi/storage/postgres"
+	"gogi/gogi/storage/vector_storage/models"
 	"gogi/gogi/utils"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"go.temporal.io/sdk/client"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -69,24 +69,63 @@ func (f *fakeObjects) get(key string) ([]byte, bool) {
 	return data, ok
 }
 
-// fakeWorkflows records the ingestion and delete workflows started and completes the others at once
-type fakeWorkflows struct {
-	mu        sync.Mutex
-	ingestion []workflows.IngestDocumentWorkflowConfig
-	deletes   []workflows.DeleteDocumentWorkflowConfig
+// fakeQueue records the ingestions handed to the worker
+type fakeQueue struct {
+	mu       sync.Mutex
+	messages []ingestion.Message
+	// what enqueueing fails with, if anything
+	err error
 }
 
-func (f *fakeWorkflows) ExecuteWorkflow(_ context.Context, options client.StartWorkflowOptions, _ interface{},
-	args ...interface{}) (client.WorkflowRun, error) {
+func (f *fakeQueue) Enqueue(_ context.Context, message ingestion.Message) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	switch config := args[0].(type) {
-	case workflows.IngestDocumentWorkflowConfig:
-		f.ingestion = append(f.ingestion, config)
-	case workflows.DeleteDocumentWorkflowConfig:
-		f.deletes = append(f.deletes, config)
+	if f.err != nil {
+		return f.err
 	}
-	return fakeRun{id: options.ID}, nil
+	f.messages = append(f.messages, message)
+	return nil
+}
+
+// vectorCall is a query or delete of a collection
+type vectorCall struct {
+	collection string
+	embedding  []float32
+	topK       int
+	where      map[string]any
+}
+
+// fakeVectors records the queries and deletes; a query finds the chunks given it
+type fakeVectors struct {
+	mu      sync.Mutex
+	found   []models.VectorSearchResult
+	queries []vectorCall
+	deletes []vectorCall
+}
+
+func (f *fakeVectors) Query(_ context.Context, collection string, embedding []float32, topK int,
+	where map[string]any) ([]models.VectorSearchResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queries = append(f.queries, vectorCall{collection: collection, embedding: embedding, topK: topK, where: where})
+	return f.found, nil
+}
+
+func (f *fakeVectors) DeleteWhere(_ context.Context, collection string, where map[string]any) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.deletes = append(f.deletes, vectorCall{collection: collection, where: where})
+	return 3, nil
+}
+
+func (f *fakeVectors) deletedFrom() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	collections := make([]string, 0, len(f.deletes))
+	for _, call := range f.deletes {
+		collections = append(collections, call.collection)
+	}
+	return collections
 }
 
 // fakeModels are the models gogi provides; the application has no OpenAI key
@@ -100,21 +139,22 @@ func (fakeModels) ListEmbeddingModels(context.Context) ([]*gogiv1.EmbeddingModel
 	}, nil
 }
 
-type fakeRun struct{ id string }
-
-func (r fakeRun) GetID() string                          { return r.id }
-func (r fakeRun) GetRunID() string                       { return r.id }
-func (r fakeRun) Get(context.Context, interface{}) error { return nil }
-func (r fakeRun) GetWithOptions(context.Context, interface{}, client.WorkflowRunGetOptions) error {
-	return nil
+// Embed gives every text the same vector
+func (fakeModels) Embed(_ context.Context, _ string, texts []string) ([][]float32, error) {
+	vectors := make([][]float32, len(texts))
+	for i := range texts {
+		vectors[i] = []float32{0.5, 0.5}
+	}
+	return vectors, nil
 }
 
 type testService struct {
-	client    gogiv1.DocumentServerClient
-	objects   *fakeObjects
-	workflows *fakeWorkflows
-	jobs      *postgres.JobsRepository
-	pool      *pgxpool.Pool
+	client  gogiv1.DocumentServerClient
+	objects *fakeObjects
+	queue   *fakeQueue
+	vectors *fakeVectors
+	jobs    *postgres.JobsRepository
+	pool    *pgxpool.Pool
 }
 
 // The test runs against a migrated database, e.g.
@@ -142,11 +182,11 @@ func newTestService(t *testing.T, maxUploadBytes int64) testService {
 		t.Fatal(err)
 	}
 
-	service := testService{objects: &fakeObjects{objects: map[string][]byte{}}, workflows: &fakeWorkflows{},
+	service := testService{objects: &fakeObjects{objects: map[string][]byte{}}, queue: &fakeQueue{}, vectors: &fakeVectors{},
 		jobs: postgres.NewJobsRepository(pool), pool: pool}
 	listener := bufconn.Listen(1024 * 1024)
 	server := grpc.NewServer()
-	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.workflows, pool, service.objects, fakeModels{}, maxUploadBytes))
+	gogiv1.RegisterDocumentServerServer(server, NewDocumentsServer(service.queue, service.vectors, pool, service.objects, fakeModels{}, maxUploadBytes))
 	go server.Serve(listener)
 	t.Cleanup(server.Stop)
 
@@ -191,7 +231,7 @@ func upload(t *testing.T, client gogiv1.DocumentServerClient, parts ...*gogiv1.U
 	return stream.CloseAndRecv()
 }
 
-func TestUploadDocumentStoresTheContentAndPassesItsKeyToTheWorkflow(t *testing.T) {
+func TestUploadDocumentStoresTheContentAndHandsItsKeyToTheWorker(t *testing.T) {
 	service := newTestService(t, 1024)
 
 	response, err := upload(t, service.client, info("fe-basics"), chunk("The finite element method "), chunk("divides a domain "), chunk("into elements."))
@@ -203,15 +243,15 @@ func TestUploadDocumentStoresTheContentAndPassesItsKeyToTheWorkflow(t *testing.T
 	if !ok || string(content) != "The finite element method divides a domain into elements." {
 		t.Errorf("stored content = %q", content)
 	}
-	if len(service.workflows.ingestion) != 1 {
-		t.Fatalf("workflows started = %d, want 1", len(service.workflows.ingestion))
+	if len(service.queue.messages) != 1 {
+		t.Fatalf("ingestions queued = %d, want 1", len(service.queue.messages))
 	}
-	config := service.workflows.ingestion[0]
-	if config.Bucket != "gogi-documents" || config.ObjectKey != "maria--aeronautics/fe-basics" || config.JobId != response.GetJobId() {
-		t.Errorf("workflow config = %+v", config)
+	config := service.queue.messages[0]
+	if config.Bucket != "gogi-documents" || config.ObjectKey != "maria--aeronautics/fe-basics" || config.JobID != response.GetJobId() {
+		t.Errorf("message = %+v", config)
 	}
 	// the document is chunked to fit the model, into the index's collection for it
-	want := workflows.EmbeddingModelConfig{Model: "bge-small-en-v1.5", Collection: "maria--aeronautics.bge-small-en-v1.5",
+	want := ingestion.EmbeddingModel{Model: "bge-small-en-v1.5", Collection: "maria--aeronautics.bge-small-en-v1.5",
 		ChunkSize: 307, ChunkOverlap: 30}
 	if len(config.EmbeddingModels) != 1 || config.EmbeddingModels[0] != want || config.Application != "default" {
 		t.Errorf("workflow models = %+v for %q, want %+v", config.EmbeddingModels, config.Application, want)
@@ -276,9 +316,9 @@ func TestUploadDocumentRefusals(t *testing.T) {
 			if status.Code(err) != test.code || !strings.Contains(status.Convert(err).Message(), test.message) {
 				t.Errorf("err = %v, want %s containing %q", err, test.code, test.message)
 			}
-			if len(service.objects.objects) != 0 || len(service.workflows.ingestion) != 0 {
-				t.Errorf("objects = %d, workflows = %d; the refused upload left them behind",
-					len(service.objects.objects), len(service.workflows.ingestion))
+			if len(service.objects.objects) != 0 || len(service.queue.messages) != 0 {
+				t.Errorf("objects = %d, ingestions = %d; the refused upload left them behind",
+					len(service.objects.objects), len(service.queue.messages))
 			}
 			listed, _ := service.client.ListDocuments(context.Background(), &gogiv1.ListDocumentsRequest{IndexName: "maria--aeronautics"})
 			if len(listed.GetDocuments()) != 0 {
@@ -450,8 +490,8 @@ func TestADocumentStoredWithoutModelsIsReadyAtOnceWithoutIngestion(t *testing.T)
 		t.Fatal(err)
 	}
 
-	if response.GetStatus() != string(utils.JobCompleted) || len(service.workflows.ingestion) != 0 {
-		t.Errorf("status = %s, workflows = %d; want COMPLETED without ingestion", response.GetStatus(), len(service.workflows.ingestion))
+	if response.GetStatus() != string(utils.JobCompleted) || len(service.queue.messages) != 0 {
+		t.Errorf("status = %s, ingestions = %d; want COMPLETED without ingestion", response.GetStatus(), len(service.queue.messages))
 	}
 	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "lecture-3"})
 	if err != nil {
@@ -534,9 +574,9 @@ func TestReplaceADocumentsContent(t *testing.T) {
 	if old.GetStatus() != string(utils.JobCancelled) {
 		t.Errorf("the old job is %s, want CANCELLED", old.GetStatus())
 	}
-	latest := service.workflows.ingestion[len(service.workflows.ingestion)-1]
-	if content, _ := service.objects.get("gogi-documents/" + latest.ObjectKey); string(content) != "new text" || latest.JobId != second.GetJobId() {
-		t.Errorf("the new ingestion reads %q for job %s", content, latest.JobId)
+	latest := service.queue.messages[len(service.queue.messages)-1]
+	if content, _ := service.objects.get("gogi-documents/" + latest.ObjectKey); string(content) != "new text" || latest.JobID != second.GetJobId() {
+		t.Errorf("the new ingestion reads %q for job %s", content, latest.JobID)
 	}
 	// only the new content is kept
 	if _, kept := service.objects.get("gogi-documents/maria--aeronautics/fem-notes"); kept || len(service.objects.objects) != 1 {
@@ -628,13 +668,13 @@ func TestAStoredDocumentIsIngestedLater(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(service.workflows.ingestion) != 1 {
-		t.Fatalf("workflows started = %d, want 1", len(service.workflows.ingestion))
+	if len(service.queue.messages) != 1 {
+		t.Fatalf("ingestions queued = %d, want 1", len(service.queue.messages))
 	}
-	config := service.workflows.ingestion[0]
-	if config.JobId != response.GetJobId() || config.JobId == first.GetJobId() || config.ObjectKey != "maria--aeronautics/fem-notes" ||
+	config := service.queue.messages[0]
+	if config.JobID != response.GetJobId() || config.JobID == first.GetJobId() || config.ObjectKey != "maria--aeronautics/fem-notes" ||
 		config.Metadata["subject"] != "numerical-methods" || len(config.EmbeddingModels) != 2 {
-		t.Fatalf("workflow config = %+v", config)
+		t.Fatalf("message = %+v", config)
 	}
 	// MiniLM reads less, so its chunks are shorter
 	if config.EmbeddingModels[0].Model != "all-MiniLM-L6-v2" || config.EmbeddingModels[0].ChunkSize >= config.EmbeddingModels[1].ChunkSize {
@@ -687,10 +727,7 @@ func TestDeletingADocumentDeletesWhatEveryModelEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(service.workflows.deletes) != 1 {
-		t.Fatalf("delete workflows = %d, want 1", len(service.workflows.deletes))
-	}
-	got := service.workflows.deletes[0].Collections
+	got := service.vectors.deletedFrom()
 	if len(got) != 2 || got[0] != "maria--aeronautics.all-MiniLM-L6-v2" || got[1] != "maria--aeronautics.bge-small-en-v1.5" {
 		t.Errorf("collections deleted from = %v", got)
 	}
@@ -710,11 +747,57 @@ func TestReplacingADocumentsContentDeletesWhatModelsEmbedded(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(service.workflows.deletes) != 1 || len(service.workflows.deletes[0].Collections) != 1 {
-		t.Errorf("delete workflows = %+v, want the old content's chunks deleted", service.workflows.deletes)
+	if got := service.vectors.deletedFrom(); len(got) != 1 || got[0] != "maria--aeronautics.bge-small-en-v1.5" {
+		t.Errorf("chunks deleted from %v, want the old content's", got)
 	}
 	document, _ := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
 	if len(document.GetDocument().GetEmbeddingModels()) != 0 {
 		t.Errorf("the new content is embedded by %v before it's ingested", document.GetDocument().GetEmbeddingModels())
+	}
+}
+
+func TestASearchEmbedsTheQueryAndSearchesTheModelsCollection(t *testing.T) {
+	service := newTestService(t, 1024)
+	service.vectors.found = []models.VectorSearchResult{{ChunkID: "c-1", DocumentID: "fem-notes", Text: "shape functions",
+		Score: 0.25, Metadata: map[string]string{"document_id": "fem-notes", "page": "3"}}}
+
+	response, err := service.client.SearchDocuments(context.Background(), &gogiv1.SearchDocumentsRequest{
+		IndexName: "maria--aeronautics", Query: "shape functions", TopK: 3, EmbeddingModel: "all-MiniLM-L6-v2",
+		DocumentIds: []string{"fem-notes"}, MetadataFilter: map[string]string{"subject": "numerical-methods"},
+	})
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunks := response.GetChunks()
+	if len(chunks) != 1 || chunks[0].GetContent() != "shape functions" || chunks[0].GetIndexName() != "maria--aeronautics" ||
+		chunks[0].GetMetadata()["page"] != "3" || chunks[0].GetScore() != 0.25 {
+		t.Errorf("chunks = %v", chunks)
+	}
+	query := service.vectors.queries[0]
+	if query.collection != "maria--aeronautics.all-MiniLM-L6-v2" || query.topK != 3 || len(query.embedding) != 2 {
+		t.Errorf("query = %+v", query)
+	}
+	conditions, ok := query.where["$and"].([]map[string]any)
+	if !ok || len(conditions) != 2 || conditions[0]["subject"] != "numerical-methods" {
+		t.Errorf("where = %v, want the metadata and the documents", query.where)
+	}
+}
+
+func TestAnIngestionThatCannotBeQueuedFailsItsJob(t *testing.T) {
+	service := newTestService(t, 1024)
+	service.queue.err = errors.New("the queue is down")
+
+	_, err := upload(t, service.client, info("fem-notes"), chunk("text"))
+
+	if status.Code(err) != codes.Unavailable {
+		t.Fatalf("err = %v, want Unavailable", err)
+	}
+	document, err := service.client.GetDocument(context.Background(), &gogiv1.GetDocumentRequest{IndexName: "maria--aeronautics", DocumentId: "fem-notes"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.GetDocument().GetStatus() != string(utils.JobFailed) {
+		t.Errorf("the document's ingestion is %s, want FAILED", document.GetDocument().GetStatus())
 	}
 }

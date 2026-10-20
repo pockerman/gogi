@@ -12,14 +12,15 @@ of applications and users.
   from the addresses applications call from.
 - **The gateway** takes only calls with an application's key (`GOGI_APPLICATION_KEYS=required`), and the services
   take only calls that say which application they're for (`GOGI_REQUIRE_APPLICATION`).
-- **Temporal and Chroma** run on the server, and the two small embedding models gogi runs, each in a text embeddings
-  inference server of its own. Chroma's data, and the models the servers download, are kept on a disk of their own
-  (`/data`), which outlives the server. The Python workers run no model: the model service embeds text, calling
-  OpenAI with an application's key, or a model the application hosts, for any other model.
+- **Chroma** runs on the server, and the two small embedding models gogi runs, each in a text embeddings inference
+  server of its own. Chroma's data, and the models the servers download, are kept on a disk of their own (`/data`),
+  which outlives the server. The model service embeds text, calling OpenAI with an application's key, or a model the
+  application hosts, for any other model.
+- **Documents are ingested** by a function the cloud's queue triggers, a Lambda or an Azure Function, or by the
+  ingestion worker on the server until one is set up (see [ingesting documents](#ingesting-documents)).
 - **Files**, documents' uploads and prompts' texts, are kept in the cloud's object storage: S3, or Azure Blob
   Storage. MinIO is for development only.
-- **Postgres** is the cloud's. gogi's services and Temporal share it, over TLS; Temporal makes its own two
-  databases, `temporal` and `temporal_visibility`.
+- **Postgres** is the cloud's. gogi's services and the ingestion function share it, over TLS.
 - **Applications' provider keys**, e.g. their Anthropic keys, are kept in the cloud's secrets manager.
 - **The migrations** run before the services start, every time the deployment starts.
 
@@ -166,9 +167,62 @@ az vm run-command invoke --resource-group "$(terraform output -raw resource_grou
 Restarting gogi (`systemctl restart gogi`), new images and the gateway's certificate work as on AWS. Postgres is
 locked against being deleted while `deletion_protection` is set.
 
+## Ingesting documents
+
+The documents service hands each ingestion to the ingestion worker through a queue (`GOGI_INGESTION_QUEUE`). The
+worker reads the document from the object store, parses it, chunks it for each embedding model the application
+named, has the model service embed the chunks, stores them in Chroma, and reports on the ingestion's job in Postgres.
+Searches and deletes need no worker: the documents service embeds a search's query with the model service and asks
+Chroma itself.
+
+| `GOGI_INGESTION_QUEUE` | The queue | The worker |
+|---|---|---|
+| `postgres` (default) | the table `gogi_ingestion_queue` | `workers/ingest_document/local_worker.py`, polling it: in `docker-compose.yml`, and on the server until a function is set up |
+| `sqs` (`GOGI_SQS_QUEUE_URL`) | SQS, with a dead-letter queue | a Lambda (`docker/ingest_document_lambda.Dockerfile`) |
+| `azure` (`GOGI_AZURE_QUEUE_URL`) | an Azure Storage queue, with its poison queue | an Azure Function on the Flex Consumption plan (`workers/azure_function`) |
+
+The same code ingests in all three. A failed ingestion is tried again, three times in all
+(`GOGI_INGESTION_MAX_ATTEMPTS`), after which its job fails; one that can't succeed, e.g. with a model the
+application may not use, fails at once.
+
+The function runs in the deployment's network: it reaches Postgres, and Chroma and the model service, which are
+published on the server's private address (`GOGI_PRIVATE_IP`) for it alone. Applications' keys stay with the model
+service on the server. A few ingestions run at a time (`ingestion_concurrency`, 2 by default), as the server embeds
+their chunks. The functions cost next to nothing at gogi's scale: Lambda's and Flex Consumption's free grants cover
+hundreds of thousands of seconds of ingestion a month.
+
+### On AWS
+
+The Lambda runs the image `ghcr.io/pockerman/gogi-ingest-lambda`, which Lambda can run only from ECR. Copy it to the
+deployment's repository, then set its tag and apply; the server is replaced, keeping its data:
+
+```bash
+cd deploy/aws
+./push-ingestion-image.sh ghcr.io/pockerman/gogi-ingest-lambda:sha-<commit>   # or with no image, to build one here
+terraform apply -var ingestion_image_tag=<the tag it printed>
+```
+
+The Lambda runs in the database's private subnets, which have no route to the internet: it reaches S3 through a
+gateway endpoint, which costs nothing. Its logs are in CloudWatch, `/aws/lambda/gogi-ingestion`; messages it gave up
+on are in the dead-letter queue (`terraform output ingestion`).
+
+### On Azure
+
+Set `ingestion_function = true` and apply; the server is replaced, keeping its data. Then build the Function's code
+and publish it, with Azure Functions Core Tools:
+
+```bash
+workers/azure_function/build.sh dist/azure-function
+cd dist/azure-function
+func azure functionapp publish "$(terraform -chdir=../../deploy/azure output -json ingestion | jq -r .function_app)" --python
+```
+
+The Function signs in to the storage account and its queue as its own managed identity, and runs in a subnet of its
+own, from which it reaches Postgres and the server.
+
 ## Where files are kept
 
-The documents, indexes and prompts services, and the Python workers, choose the object storage with
+The documents, indexes and prompts services, and the ingestion worker, choose the object storage with
 `GOGI_OBJECT_STORE`:
 
 | Value | Store | Settings |
@@ -181,7 +235,7 @@ On Azure, a bucket is a container of the storage account. A store makes a bucket
 puts a file in it, as development's MinIO needs; in the cloud, Terraform makes them.
 
 Without `GOGI_S3_ENDPOINT`, the services use development's MinIO, as `docker-compose.yml` sets it: `GOGI_MINIO_HOST`,
-`GOGI_MINIO_ROOT_USER` and `GOGI_MINIO_ROOT_PASSWORD` (`MINIO_HOST`, ... in the Python workers), over plain HTTP.
+`GOGI_MINIO_ROOT_USER` and `GOGI_MINIO_ROOT_PASSWORD` (`MINIO_HOST`, ... in the ingestion worker), over plain HTTP.
 
 The stores' tests run against MinIO and Azurite, Azure's storage emulator, where they're given:
 

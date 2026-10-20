@@ -71,6 +71,22 @@ data "aws_iam_policy_document" "server" {
   }
 }
 
+# the documents service queues ingestions for the Lambda
+resource "aws_iam_role_policy" "server_ingestion" {
+  count = local.ingestion_function ? 1 : 0
+  name  = "${var.name}-server-ingestion"
+  role  = aws_iam_role.server.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid      = "IngestionQueue"
+      Effect   = "Allow"
+      Action   = ["sqs:SendMessage"]
+      Resource = aws_sqs_queue.ingestion[0].arn
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "server" {
   name   = "${var.name}-server"
   role   = aws_iam_role.server.id
