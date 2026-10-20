@@ -1,21 +1,11 @@
 name: Images
 
-# gogi's container images, one for each service and worker, and one for the database migrations. Built for every PR
-# that changes them; pushed from main as ghcr.io/<owner>/gogi-<image>:main and :sha-<commit>.
+# gogi's container images, one for each service and worker, and one for the database migrations. Built and pushed
+# from main as ghcr.io/<owner>/gogi-<image>:main and :sha-<commit>; not for PRs, to save the private repo's minutes.
 on:
   push:
     branches:
       - main
-  pull_request:
-    paths:
-      - "docker/**"
-      - "gogi/**"
-      - "workers/**"
-      - "migrations/**"
-      - "go.mod"
-      - "go.sum"
-      - "third_party/**"
-      - ".github/workflows/images.yml"
   workflow_dispatch:
 
 concurrency:
@@ -62,6 +52,9 @@ jobs:
 
       - name: Install protoc
         uses: arduino/setup-protoc@v3
+        with:
+          # without a token, GitHub's API limits the action's requests and the step fails now and then
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate protobufs
         run: |
@@ -73,7 +66,6 @@ jobs:
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -83,7 +75,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
+          push: true
           tags: |
             ghcr.io/${{ github.repository_owner }}/gogi-${{ matrix.image }}:main
             ghcr.io/${{ github.repository_owner }}/gogi-${{ matrix.image }}:sha-${{ github.sha }}
