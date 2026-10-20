@@ -24,6 +24,8 @@ resource "aws_ebs_volume" "data" {
 
 locals {
   compose_dir = "${path.module}/.."
+  # fixed, so the ingestion Lambda's settings don't change when the server is replaced
+  server_private_ip = cidrhost(aws_subnet.public.cidr_block, 10)
 
   start_script = templatefile("${path.module}/start-gogi.sh", {
     region          = var.region
@@ -38,6 +40,9 @@ locals {
     prompts         = aws_s3_bucket.files["prompts"].id
     tls_secret      = aws_secretsmanager_secret.tls.name
     registry_secret = aws_secretsmanager_secret.registry.name
+    private_ip      = local.server_private_ip
+    # empty while the worker runs on the server
+    ingestion_queue_url = local.ingestion_function ? aws_sqs_queue.ingestion[0].url : ""
   })
 
   user_data = templatefile("${path.module}/cloud-init.yaml", {
@@ -53,6 +58,7 @@ resource "aws_instance" "server" {
   ami                    = data.aws_ssm_parameter.al2023.insecure_value
   instance_type          = var.instance_type
   subnet_id              = aws_subnet.public.id
+  private_ip             = local.server_private_ip
   vpc_security_group_ids = [aws_security_group.server.id]
   iam_instance_profile   = aws_iam_instance_profile.server.name
 
@@ -60,7 +66,7 @@ resource "aws_instance" "server" {
   user_data_replace_on_change = true
 
   root_block_device {
-    # the images: the Python worker's alone is 7 GB
+    # the images, and room for the next ones
     volume_size = 40
     volume_type = "gp3"
     encrypted   = true

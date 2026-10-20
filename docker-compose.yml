@@ -128,17 +128,15 @@ services:
       - GOGI_VECTOR_DB_TYPE=chroma
       - GOGI_VECTOR_DB_HOST=chromadb
       - GOGI_VECTOR_DB_PORT=8000
-      - GOGI_INGESTION_DOCUMENT_QUEUE_NAME=ingestion-document-queue
-      - TEMPORAL_HOST=host.docker.internal:7233
-      # uploads are kept in MinIO; the workflow carries only their key
+      # ingestions wait in a queue table in Postgres for the ingestion worker; searches and deletes go to Chroma
+      - GOGI_INGESTION_QUEUE=postgres
+      # uploads are kept in MinIO; the ingestion message carries only their key
       - GOGI_MINIO_HOST=minio:9000
       - GOGI_MINIO_ROOT_USER=admin
       - GOGI_MINIO_ROOT_PASSWORD=password
       - GOGI_DOCUMENTS_MAX_UPLOAD_MB=100
       # the embedding models a document is ingested with are the model service's to know
       - GOGI_LLM_SERVICE_ADDR=llms:50057
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
       - postgres
       - chromadb
@@ -346,66 +344,13 @@ services:
       - postgres
 
 
-  # The Go Temporal Worker Executes the Go workflow (orchestration)
-  # Runs the orchestration logic (IngestDocumentWorkflow)
-  ingest-documents-go-worker:
-    build:
-      context: .
-      dockerfile: docker/ingest_document_go_worker.Dockerfile 
-    environment:
-      - GOGI_LOG_LEVEL=debug
-      - TEMPORAL_HOST=host.docker.internal:7233
-      - WORK_QUEUE=ingestion-document-queue
-      # the queues its search and delete workflows send their activities to
-      - GOGI_SEARCH_DOCUMENTS_QUEUE_NAME=search-documents-queue
-      - GOGI_DELETE_DOCUMENTS_QUEUE_NAME=delete-documents-queue
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      #- temporal
-      - documents # Ensures network is ready
-      - postgres
-      - chromadb
-    restart: unless-stopped
-  ingest-documents-python-worker:
-    build:
-      context: .
-      dockerfile: docker/ingest_document_python_worker.Dockerfile 
-    environment:
-      - TEMPORAL_HOST=host.docker.internal:7233
-      - TASK_QUEUE=ingestion-document-queue
-      # long-running: only ingestions, so they don't hold up searches and deletes
-      - ACTIVITIES=ingest_document
-      - MINIO_HOST=minio:9000
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=password
-      - VECTOR_STORAGE_TYPE=chromadb
-      - VECTOR_STORAGE_HOST=chromadb
-      - VECTOR_STORAGE_PORT=8000
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=gogi
-      - DB_USER=gogi
-      - DB_PASSWORD=gogi
-      # the model service embeds the chunks and queries
-      - GOGI_LLM_SERVICE_ADDR=llms:50057
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - documents
-      - postgres
-      - chromadb
-      - llms
-    restart: unless-stopped
-  # the same image as the ingestion worker; each serves one activity on a queue of its own
-  search-document-worker:
+  # ingests the documents queued in Postgres: parses them, chunks them for each embedding model, has the model
+  # service embed the chunks and stores them in Chroma. In the cloud the same code runs as a function
+  ingest-documents-worker:
     build:
       context: .
       dockerfile: docker/ingest_document_python_worker.Dockerfile
     environment:
-      - TEMPORAL_HOST=host.docker.internal:7233
-      - TASK_QUEUE=search-documents-queue
-      - ACTIVITIES=search_document
       - MINIO_HOST=minio:9000
       - MINIO_ROOT_USER=admin
       - MINIO_ROOT_PASSWORD=password
@@ -417,43 +362,12 @@ services:
       - DB_NAME=gogi
       - DB_USER=gogi
       - DB_PASSWORD=gogi
-      # the model service embeds the chunks and queries
+      # the model service embeds the chunks
       - GOGI_LLM_SERVICE_ADDR=llms:50057
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     depends_on:
-      - documents
       - postgres
       - chromadb
-      - llms
-    restart: unless-stopped
-  delete-document-worker:
-    build:
-      context: .
-      dockerfile: docker/ingest_document_python_worker.Dockerfile
-    environment:
-      - TEMPORAL_HOST=host.docker.internal:7233
-      - TASK_QUEUE=delete-documents-queue
-      - ACTIVITIES=delete_document
-      - MINIO_HOST=minio:9000
-      - MINIO_ROOT_USER=admin
-      - MINIO_ROOT_PASSWORD=password
-      - VECTOR_STORAGE_TYPE=chromadb
-      - VECTOR_STORAGE_HOST=chromadb
-      - VECTOR_STORAGE_PORT=8000
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=gogi
-      - DB_USER=gogi
-      - DB_PASSWORD=gogi
-      # the model service embeds the chunks and queries
-      - GOGI_LLM_SERVICE_ADDR=llms:50057
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      - documents
-      - postgres
-      - chromadb
+      - minio
       - llms
     restart: unless-stopped
 volumes:

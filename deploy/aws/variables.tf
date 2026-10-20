@@ -58,7 +58,7 @@ variable "file_versions_days" {
 }
 
 variable "db_instance_class" {
-  description = "The Postgres server, which gogi's services and Temporal share"
+  description = "The Postgres server gogi's services share"
   type        = string
   default     = "db.t4g.small"
 }
@@ -79,6 +79,30 @@ variable "deletion_protection" {
   description = "Whether Postgres is protected from being deleted, e.g. by terraform destroy"
   type        = bool
   default     = true
+}
+
+variable "ingestion_image_tag" {
+  description = "The tag of the ingestion Lambda's image in the ingestion ECR repository (push-ingestion-image.sh); empty for the worker on the server, polling Postgres. Changing it replaces the server, keeping its data"
+  type        = string
+  default     = ""
+}
+
+variable "ingestion_memory_mb" {
+  description = "The ingestion Lambda's memory; it reads, parses and chunks a whole document"
+  type        = number
+  default     = 1024
+}
+
+variable "ingestion_concurrency" {
+  description = "How many ingestions the Lambda runs at once (2 at least): the server embeds their chunks"
+  type        = number
+  default     = 2
+}
+
+variable "ingestion_max_attempts" {
+  description = "How many times an ingestion is tried before its job fails"
+  type        = number
+  default     = 3
 }
 
 variable "certificate_validity_days" {

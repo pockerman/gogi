@@ -4,7 +4,7 @@ from psycopg import connect
 
 
 class PostgresDB:
-    """The worker's database. Activities run in threads of their own, so every operation has a connection of its
+    """The worker's database. Ingestions can run in threads of their own, so every operation has a connection of its
     own: threads sharing one would interleave their transactions."""
 
     def __init__(
@@ -24,6 +24,17 @@ class PostgresDB:
 
     def close(self):
         pass
+
+    def mark_running(self, job_id: str):
+        """the job is RUNNING, unless it's no longer PENDING: cancelled, or delivered again"""
+        with self._connection() as connection, connection.cursor() as cur:
+            cur.execute(
+                """
+                UPDATE jobs SET status = 'RUNNING', started_at = COALESCE(started_at, NOW())
+                WHERE id = %s AND status = 'PENDING'
+                """,
+                (job_id,),
+            )
 
     def update_job_status(
     self,

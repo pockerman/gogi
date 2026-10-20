@@ -1,3 +1,5 @@
+DROP TABLE gogi_ingestion_queue;
+
 ALTER TABLE jobs
 DROP COLUMN job_type;
 

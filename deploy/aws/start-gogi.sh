@@ -58,6 +58,14 @@ GOGI_TLS_NAME=${tls_name}
 GOGI_CREDENTIAL_STORE=aws
 GOGI_CREDENTIAL_PREFIX=${name}/credentials/
 AWS_REGION=${region}
+GOGI_PRIVATE_IP=${private_ip}
+%{ if ingestion_queue_url != "" ~}
+GOGI_INGESTION_QUEUE=sqs
+GOGI_SQS_QUEUE_URL=${ingestion_queue_url}
+%{ else ~}
+GOGI_INGESTION_QUEUE=postgres
+COMPOSE_PROFILES=ingestion-worker
+%{ endif ~}
 EOF
 
 mkdir -p certs

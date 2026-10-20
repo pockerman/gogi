@@ -55,8 +55,8 @@ What the platform does today, by area. The service pages linked above have the d
 - Files kept without being ingested, e.g. videos, and documents whose content is replaced after they are edited.
 - Documents listed and searched by their metadata, read section by section (Markdown headings, a PDF's outline or
   pages), downloaded whole or as a byte range, and deleted with everything made from them.
-- Ingestion and the quick operations (search, delete) run on separate workers, so a long ingestion doesn't hold up
-  the others, and deleting a document stops its ingestion.
+- Ingestion runs in a worker of its own, a Lambda or Azure Function in the cloud, so it never holds up searches or
+  deletes, and deleting a document stops its ingestion.
 
 **Tools**
 - A registry of tools with namespaces and versions, discovered by capability, and tools imported from MCP servers.

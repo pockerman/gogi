@@ -63,9 +63,21 @@ variable "backup_days" {
 }
 
 variable "db_sku" {
-  description = "The Postgres server, which gogi's services and Temporal share"
+  description = "The Postgres server gogi's services share"
   type        = string
   default     = "B_Standard_B2s"
+}
+
+variable "ingestion_function" {
+  description = "Whether documents are ingested by a Function (publish its code with workers/azure_function/build.sh) rather than the worker on the server; changing it replaces the server, keeping its data"
+  type        = bool
+  default     = false
+}
+
+variable "ingestion_concurrency" {
+  description = "How many ingestions the Function runs at once: the server embeds their chunks"
+  type        = number
+  default     = 2
 }
 
 variable "db_storage_mb" {

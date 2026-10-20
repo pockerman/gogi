@@ -1,31 +1,21 @@
 # syntax=docker/dockerfile:1.7
 # docker/ingest_document_python_worker.Dockerfile
+#
+# The ingestion worker as a process polling gogi's ingestion queue table in Postgres (GOGI_INGESTION_QUEUE=postgres),
+# e.g. in development. In the cloud the same code runs as a function: docker/ingest_document_lambda.Dockerfile on AWS,
+# workers/azure_function on Azure.
 
 FROM python:3.12-slim
 
 # Prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 
-# Set working directory
 WORKDIR /app
 
-# Install system dependencies if needed later
-RUN apt-get update && apt-get install -y \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy the worker_utils requirements
-COPY workers/worker_utils/requirements.txt .
-
+COPY workers/worker_utils/requirements.txt worker_utils-requirements.txt
+COPY workers/ingest_document/requirements.txt ingest_document-requirements.txt
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
-
-# Copy worker requirements first for better Docker layer caching
-COPY workers/ingest_document/requirements.txt .
-
-# Install Python dependencies
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install -r requirements.txt
+    pip install -r worker_utils-requirements.txt -r ingest_document-requirements.txt
 
 # The worker calls the model service to embed text: generate its client from the protos, with the protobuf the
 # worker runs with
@@ -36,11 +26,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     && python -m grpc_tools.protoc -I /protos --python_out=/app/generated --grpc_python_out=/app/generated \
         $(find /protos/gogi/v1 -name '*.proto')
 
-# Copy worker source code
 COPY workers ./workers
 
-# Make worker utilities, and the generated client, importable
+# Make the worker's code, and the generated client, importable
 ENV PYTHONPATH=/app:/app/generated
 
-# Run the Temporal ingestion worker
-CMD ["python", "workers/ingest_document/ingestion_pipeline_worker.py"]
+CMD ["python", "workers/ingest_document/local_worker.py"]

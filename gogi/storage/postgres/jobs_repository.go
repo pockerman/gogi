@@ -78,6 +78,15 @@ func (r *JobsRepository) Cancel(ctx context.Context, id string) error {
 	return err
 }
 
+// Fail marks a job FAILED with the error, unless it has finished or been cancelled
+func (r *JobsRepository) Fail(ctx context.Context, id string, message string) error {
+	_, err := r.pool.Exec(ctx, `
+		UPDATE jobs SET status = $1, error_message = $2, completed_at = NOW()
+		WHERE id = $3 AND status IN ($4, $5)
+	`, utils.JobFailed, message, id, utils.JobPending, utils.JobRunning)
+	return err
+}
+
 func (r *JobsRepository) GetJob(id string) (Job, error) {
 
 	var job Job

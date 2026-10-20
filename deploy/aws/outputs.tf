@@ -23,6 +23,20 @@ output "credential_prefix" {
   value       = "${var.name}/credentials/"
 }
 
+output "ingestion_repository" {
+  description = "Where push-ingestion-image.sh pushes the ingestion Lambda's image"
+  value       = aws_ecr_repository.ingestion.repository_url
+}
+
+output "ingestion" {
+  description = "Where documents are ingested: the Lambda and its queues, or the server"
+  value = local.ingestion_function ? {
+    lambda            = aws_lambda_function.ingestion[0].function_name
+    queue             = aws_sqs_queue.ingestion[0].url
+    dead_letter_queue = aws_sqs_queue.ingestion_dead_letters[0].url
+  } : { worker = "on the server, polling Postgres" }
+}
+
 output "registry_secret" {
   description = "Where to put a token for the images, if they're private"
   value       = aws_secretsmanager_secret.registry.name

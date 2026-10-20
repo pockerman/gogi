@@ -42,9 +42,11 @@ jobs:
           - { image: workflows, dockerfile: docker/workflows.Dockerfile }
           - { image: observability, dockerfile: docker/observability.Dockerfile }
           - { image: guardrails, dockerfile: docker/guardrails.Dockerfile }
-          - { image: ingest-documents-go-worker, dockerfile: docker/ingest_document_go_worker.Dockerfile }
-          # the ingestion, search and delete workers of docker-compose.yml
+          # the ingestion worker, polling Postgres (docker-compose.yml, and a server without functions)
           - { image: python-worker, dockerfile: docker/ingest_document_python_worker.Dockerfile }
+          # the ingestion worker as an AWS Lambda; deploy/aws/push-ingestion-image.sh copies it to ECR, as Lambda
+          # runs images from ECR only
+          - { image: ingest-lambda, dockerfile: docker/ingest_document_lambda.Dockerfile }
           - { image: migrations, dockerfile: docker/migrations.Dockerfile }
     steps:
       - name: Checkout repository and submodules

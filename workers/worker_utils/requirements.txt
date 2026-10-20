@@ -1,4 +1,5 @@
-chromadb
+# the HTTP client only: gogi's Chroma is a server of its own
+chromadb-client==1.4.1
 loguru
 pydantic
 psycopg[binary]

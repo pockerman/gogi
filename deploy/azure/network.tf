@@ -5,6 +5,10 @@ resource "azurerm_resource_group" "gogi" {
 
 # One virtual network: the server with a public IP address, and Postgres in a subnet of its own, reachable only from
 # inside the network
+locals {
+  server_private_ip = cidrhost(azurerm_subnet.server.address_prefixes[0], 10)
+}
+
 resource "azurerm_virtual_network" "gogi" {
   name                = var.name
   location            = azurerm_resource_group.gogi.location
@@ -67,9 +71,11 @@ resource "azurerm_network_interface" "server" {
   resource_group_name = azurerm_resource_group.gogi.name
 
   ip_configuration {
-    name                          = "server"
-    subnet_id                     = azurerm_subnet.server.id
-    private_ip_address_allocation = "Dynamic"
+    name      = "server"
+    subnet_id = azurerm_subnet.server.id
+    # fixed, so the ingestion Function's settings don't change when the server is replaced
+    private_ip_address_allocation = "Static"
+    private_ip_address            = local.server_private_ip
     public_ip_address_id          = azurerm_public_ip.server.id
   }
 }

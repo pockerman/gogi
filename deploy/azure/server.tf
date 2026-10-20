@@ -28,6 +28,9 @@ locals {
     client_id     = azurerm_user_assigned_identity.server.client_id
     storage_url   = azurerm_storage_account.files.primary_blob_endpoint
     data_disk_lun = 0
+    private_ip    = local.server_private_ip
+    # empty while the worker runs on the server
+    ingestion_queue_url = var.ingestion_function ? "${azurerm_storage_account.files.primary_queue_endpoint}${local.ingestion_queue}" : ""
   })
 
   custom_data = templatefile("${path.module}/cloud-init.yaml", {
